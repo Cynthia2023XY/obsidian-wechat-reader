@@ -1,0 +1,1 @@
+{"id":"wechat-reader","name":"WeChat Reader","version":"0.1.0","minAppVersion":"1.14.4","description":"订阅微信公众号，阅读本地全文、收藏、归档 Markdown 并导出 RSS。","author":"Cynthia Ding","isDesktopOnly":true}

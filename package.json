@@ -1,0 +1,32 @@
+{
+  "name": "wechat-reader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "微信公众号订阅、全文阅读与本地 RSS 导出",
+  "scripts": {
+    "build": "tsc --noEmit && node esbuild.config.mjs",
+    "test": "vitest run",
+    "test:companion": ".venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v",
+    "package:companion": ".venv/bin/python companion/packaging/build.py",
+    "deploy:test": "node scripts/deploy-test.mjs",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.6",
+    "@vitest/coverage-v8": "3.2.7",
+    "esbuild": "^0.25.0",
+    "jsdom": "26.1.0",
+    "obsidian": "latest",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.7"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.0",
+    "turndown": "^7.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
