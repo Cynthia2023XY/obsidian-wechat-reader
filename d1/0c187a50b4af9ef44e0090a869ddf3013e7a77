@@ -1,0 +1,97 @@
+.gitignore
+  s_6d1f29f121ed5a::t_284b6f7c2a0b78 1-10
+README.md
+  s_6d1f29f121ed5a::t_c8c270148396cb 1-60
+VALIDATION.md
+  s_6d1f29f121ed5a::t_ccf4f424a68c23 1-62
+companion/collector.py
+  s_6d1f29f121ed5a::t_a0e3af567cca59 1-313
+companion/core.py
+  s_6d1f29f121ed5a::t_39f740b9758790 1-205
+companion/jobs.py
+  s_6d1f29f121ed5a::t_71208f0c59f0a8 1-123
+companion/packaging/build.py
+  s_6d1f29f121ed5a::t_38996fed389cfd 1-34
+companion/requirements.lock.txt
+  s_6d1f29f121ed5a::t_ec8c1f65fc6719 1-24
+companion/requirements.txt
+  s_6d1f29f121ed5a::t_f14c4842f6a0a2 1-7
+companion/server.py
+  s_6d1f29f121ed5a::t_473165daad536f 1-387
+companion/upstream/LICENSE
+  s_80d31dd7499902::t_d1986d2a30855a 1-23
+companion/upstream/backend/__init__.py
+  s_6d1f29f121ed5a::t_ceea1698e8f16c 1
+companion/upstream/backend/avatar_cache.py
+  s_6d1f29f121ed5a::t_2d2ec0602abf86 1-232
+companion/upstream/backend/downloader.py
+  s_6d1f29f121ed5a::t_fe76b002c4e7e1 1-1452
+companion/upstream/backend/runtime.py
+  s_6d1f29f121ed5a::t_7551d924bd7518 1-247
+companion/upstream/backend/wechat_url.py
+  s_6d1f29f121ed5a::t_b70f921d42c2bd 1-44
+companion/upstream/backend/weread_signer.py
+  s_6d1f29f121ed5a::t_f5395692e24081 1-235
+contracts/README.md
+  s_6d1f29f121ed5a::t_9ed886f296a1b6 1-23
+manifest.json
+  s_6d1f29f121ed5a::t_d84bc9c51b432e 1
+scripts/deploy-test.mjs
+  s_6d1f29f121ed5a::t_cde15d2e9e39ea 1-20
+src/archive/archive.ts
+  s_6d1f29f121ed5a::t_bd2600a7202ec6 1-74
+src/collector/client.ts
+  s_6d1f29f121ed5a::t_73fcbffa3758a3 1-50
+src/collector/types.ts
+  s_6d1f29f121ed5a::t_ed6de21850fc7c 1-29
+src/main.ts
+  s_6d1f29f121ed5a::t_c7c5ffe3c16dba 1-67
+src/runtime/manager.ts
+  s_6d1f29f121ed5a::t_4f959a0cc996be 1-105
+src/views/reader.ts
+  s_6d1f29f121ed5a::t_73269132384b66 1-424
+styles.css
+  s_6d1f29f121ed5a::t_63c58376061449 1-42
+tests/archive.test.ts
+  s_6d1f29f121ed5a::t_51d2e558a75b7d 1-58
+tests/client.test.ts
+  s_6d1f29f121ed5a::t_33df23f07e65e1 1-43
+tests/obsidian-mock.ts
+  s_6d1f29f121ed5a::t_08bbd2016719db 1-9
+tests/packaged_smoke.py
+  s_6d1f29f121ed5a::t_20e2b269486610 1-54
+tests/runtime.test.ts
+  s_6d1f29f121ed5a::t_b9a501378d3e7e 1-49
+tests/test_collector.py
+  s_6d1f29f121ed5a::t_812aba33d1b650 1-97
+tests/test_companion.py
+  s_6d1f29f121ed5a::t_0b603b8c03b3e9 1-289
+versions.json
+  s_6d1f29f121ed5a::t_43ddfc448c99f4 1
+vitest.config.ts
+  s_6d1f29f121ed5a::t_3e732d3b0a24f4 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "d10c187a50b4af9ef44e0090a869ddf3013e7a77",
+  "prompts": {},
+  "sessions": {
+    "s_6d1f29f121ed5a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a166ef-d8b4-7760-980a-721532ee8c79",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "dingxinyi.2 <dingxinyi.2@jd.com>"
+    },
+    "s_80d31dd7499902": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16175-4235-7db0-8128-6ff31e62b6cf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "dingxinyi.2 <dingxinyi.2@jd.com>"
+    }
+  }
+}
