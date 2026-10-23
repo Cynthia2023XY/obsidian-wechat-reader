@@ -7,3 +7,22 @@ export class TFile {
 export function normalizePath(value: string): string {return value.replace(/\/+/g,'/');}
 /** 测试必须显式替换网络请求，不允许意外访问真实采集实例 */
 export async function requestUrl(_request: unknown): Promise<unknown> {throw new Error('测试未提供网络响应');}
+/** 原生模态的测试替身，仅记录作用域注册，不影响真实应用 */
+export class Modal {
+  /** 测试内的模态外壳 */
+  modalEl=document.createElement('div');
+  /** 模态正文挂载点 */
+  contentEl=document.createElement('div');
+  /** 方向键只注册到当前模态的作用域 */
+  scope={handlers:new Map<string,(event:KeyboardEvent)=>unknown>(),register:(_modifiers:string[],key:string,callback:(event:KeyboardEvent)=>unknown)=>{this.scope.handlers.set(key,callback);}};
+  /** 应用对象不需要加载真实 Obsidian */
+  constructor(public app:unknown){this.modalEl.append(this.contentEl);}
+  /** 模拟打开并挂载 DOM */
+  open():void{document.body.append(this.modalEl);(this as unknown as {onOpen:()=>void}).onOpen();}
+  /** 模拟关闭并触发生命周期 */
+  close():void{(this as unknown as {onClose:()=>void}).onClose();this.modalEl.remove();}
+}
+/** 提示只供断言，不显示系统通知 */
+export class Notice {/** 保存提示文本 */ constructor(public message:string) {}}
+/** 本组测试未使用设置控件，保留导出供模块加载 */
+export class Setting {}

@@ -1,8 +1,8 @@
 # CollectorProvider v1
 
-健康程序标识 `obsidian-wechat-reader-companion`，engine `0.1.0`，API `1`，SQLite schema `1`。
+健康程序标识 `obsidian-wechat-reader-companion`，engine `ts-1`，runtimeLanguage `typescript`，API `1`，SQLite schema `1`。
 
-所有 HTTP 请求必须携带 `X-Reader-Key`，服务仅绑定 `127.0.0.1` 动态端口。Origin 仅接受缺省值（原生 requestUrl）或 `app://obsidian.md`，不启用 CORS。POST / PATCH 必须为 JSON。统一响应 `{data, requestId}`；错误 `{error:{code,message,retryable,retryAfter,action},requestId}`。资源和 RSS 返回原始字节并带 `X-Request-Id`。
+所有管理 HTTP 请求必须携带 `X-Reader-Key`，服务仅绑定 `127.0.0.1` 的专用端口（首次分配后持久记忆，冲突时报错）。Origin 仅接受缺省值（原生 requestUrl）或 `app://obsidian.md`，不启用 CORS。POST / PATCH 必须为 JSON。统一响应 `{data, requestId}`；错误 `{error:{code,message,retryable,retryAfter,action},requestId}`。资源和 RSS 返回原始字节并带 `X-Request-Id`。
 
 - `GET /v1/health`
 - `POST /v1/clients`、`POST /v1/clients/:id/renew`、`DELETE /v1/clients/:id`：90 秒租约，客户端每 25 秒续租。
@@ -21,3 +21,7 @@
 主要错误：AUTH_REQUIRED（扫码）、VERIFICATION_REQUIRED（手机处理验证）、NETWORK / UPSTREAM（稍后重试）、UNAVAILABLE（墓碑）、DISK_FULL（释放空间）、INTERRUPTED（重启后重试）。
 
 文章 identity：reviewId 优先，URL 摘要兜底；后续可靠 reviewId 作为别名，不改变已分配 articleId。分页遇到整页旧项才停止，保留积压偏移，标题相同不合并。正文版本目录原子替换后才提交索引；新版本保留旧归档附件。
+
+二期持续订阅：`GET /v1/accounts/:id/rss` 返回源级只读 URL，`POST /v1/accounts/:id/rss/token` 撤销旧令牌并返回新地址；`GET /feeds/:id/:token.xml` 与 `/feed-assets/:id/:token/:articleId/:assetId` 仅允许读取对应源的成功内容，不接受管理密钥作为源令牌。令牌不写日志，不导入 OPML。
+
+普通 RSS/Atom 使用插件内 FeedService 和本库分片缓存，不调用上述管理接口。首次 TS 接管创建私有 SQLite / 凭据快照，前置条件是旧程序已经停止。

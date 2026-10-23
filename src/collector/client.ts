@@ -9,7 +9,7 @@ export class CollectorFailure extends Error {
   constructor(message: string, public code: string) { super(message); }
 }
 /** 使用 Obsidian requestUrl 访问受保护的本机程序 */
-export class PythonCollectorClient implements CollectorProvider {
+export class LocalCollectorClient implements CollectorProvider {
   /** 保存已验证的本机发现信息 */
   constructor(private discovery: Discovery) {}
   /** 按固定回环地址构造请求，拒绝将密钥发往其他主机 */
@@ -30,7 +30,7 @@ export class PythonCollectorClient implements CollectorProvider {
   async health(): Promise<Health> {
     // 程序与发现文件必须属于同一实例和协议。
     const health = await this.call<Health>('/v1/health');
-    if (health.programId !== 'obsidian-wechat-reader-companion' || health.apiVersion !== 1 || health.engineVersion !== '0.1.0' || health.instanceId !== this.discovery.instanceId) throw new Error('本机采集程序版本或身份不兼容');
+    if (health.programId !== 'obsidian-wechat-reader-companion' || health.apiVersion !== 1 || health.engineVersion !== 'ts-1' || health.instanceId !== this.discovery.instanceId) throw new Error('本机采集程序版本或身份不兼容');
     return health;
   }
   /** 先鉴权下载图片，再由插件生成受控本地显示资源 */

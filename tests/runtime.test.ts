@@ -34,10 +34,10 @@ describe('附属程序生命周期',()=>{
   it('健康实例复用且卸载仅释放当前库租约',async()=>{
     // 安全发现文件由当前用户独享。
     vi.mocked(fs.stat).mockResolvedValue({uid:process.getuid?.(),mode:0o100600} as never);
-    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'0.1.0',instanceId:'fixture',port:54321,key:'fixture-key-with-sufficient-length-32'}));
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture',port:54321,key:'fixture-key-with-sufficient-length-32'}));
     vi.mocked(fs.access).mockClear();
     // 按 URL 返回健康响应或客户端租约，不使用真实网络。
-    const request=vi.spyOn(obsidian,'requestUrl').mockImplementation(async(options:any)=>({status:200,json:{data:options.url.endsWith('/health') ? {programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'0.1.0',instanceId:'fixture'} : {id:'client-fixture'}}}) as never);
+    const request=vi.spyOn(obsidian,'requestUrl').mockImplementation(async(options:any)=>({status:200,json:{data:options.url.endsWith('/health') ? {programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture'} : {id:'client-fixture'}}}) as never);
     // 对已有实例只能注册租约，不应访问或拉起可执行程序。
     const runtime=new RuntimeManager('/fixture/plugin',vi.fn());
     expect(await runtime.connect()).toBe(await runtime.connect());

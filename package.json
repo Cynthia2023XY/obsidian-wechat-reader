@@ -4,13 +4,15 @@
   "private": true,
   "description": "微信公众号订阅、全文阅读与本地 RSS 导出",
   "scripts": {
-    "build": "tsc --noEmit && node esbuild.config.mjs",
+    "build": "tsc --noEmit && tsc --noEmit -p tsconfig.runtime.json && node esbuild.config.mjs",
     "test": "vitest run",
-    "test:companion": ".venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v",
-    "package:companion": ".venv/bin/python companion/packaging/build.py",
+    "test:companion": "node scripts/test-runtime.mjs",
+    "package:companion": "node scripts/build-runtime.mjs",
     "deploy:test": "node scripts/deploy-test.mjs",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:legacy": ".venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v",
+    "test:package": "node scripts/smoke-package.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -24,9 +26,11 @@
   },
   "dependencies": {
     "dompurify": "^3.2.0",
+    "linkedom": "0.18.12",
+    "playwright-core": "1.56.0",
     "turndown": "^7.2.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=26"
   }
 }

@@ -8,3 +8,6 @@ main.js
 .DS_Store
 *.log
 coverage/
+
+# 本机界面验收截图包含笔记库背景，仅本地保留
+artifacts/

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { archiveArticle, archiveRoot, cleanArticle, safeName } from '../src/archive/archive';
+import { archiveArticle, archiveRoot, cleanArticle, safeName, passiveMarkdown } from '../src/archive/archive';
 import { TFile } from 'obsidian';
 import type { Article } from '../src/collector/types';
 
@@ -17,6 +17,9 @@ describe('离线归档与正文安全',()=>{
     const clean=cleanArticle('<p onclick="alert(1)">文字<script>alert(1)</script><iframe src="https://evil"></iframe><svg onload="alert(1)"></svg><a href="javascript:alert(1)">链接</a></p>');
     expect(clean).toContain('文字');
     expect(clean).not.toMatch(/onclick|script|iframe|svg|javascript:/i);
+  });
+  it('远端模板与内联查询保持被动文本',()=>{
+    expect(passiveMarkdown('<% code %> `\$= dangerous()` `= value`')).toBe('&lt;% code %> `\\$= dangerous()` `\\= value`');
   });
   it('保留本地资源 ID 用于鉴权替换',()=>{
     expect(cleanArticle('<img src="asset:abc" alt="图">')).toContain('asset:abc');

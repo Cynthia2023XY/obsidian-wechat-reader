@@ -2,18 +2,18 @@ import { spawn } from 'node:child_process';
 import { readFile, access, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { PythonCollectorClient, type Discovery } from '../collector/client';
+import { LocalCollectorClient, type Discovery } from '../collector/client';
 
 /** 跟随 Obsidian 运行的共享采集实例管理器 */
 export class RuntimeManager {
   /** 当前客户端的租约续期计时器 */
   private timer?: ReturnType<typeof setInterval>;
   /** 启动与重连共用单个异步任务，避免同一插件重复拉起 */
-  private pending?: Promise<PythonCollectorClient>;
+  private pending?: Promise<LocalCollectorClient>;
   /** 当前笔记库的客户端会话 ID */
   private clientId?: string;
   /** 当前可用的采集客户端 */
-  private client?: PythonCollectorClient;
+  private client?: LocalCollectorClient;
   /** 卸载时禁止未完成的启动流程重新注册租约 */
   private disposed = false;
   /** 自动恢复次数受限，持续失败后等待用户操作 */
@@ -21,7 +21,7 @@ export class RuntimeManager {
   /** 固定用户私有目录与插件安装位置 */
   constructor(private pluginDirectory: string, private onError: (message: string) => void) {}
   /** 获取或复用健康实例，并在需要时启动已封装程序 */
-  async connect(): Promise<PythonCollectorClient> {
+  async connect(): Promise<LocalCollectorClient> {
     if (this.disposed) throw new Error('插件已卸载');
     if (this.client) {
       try { await this.client.health(); return this.client; } catch { this.client = undefined; }
@@ -31,9 +31,9 @@ export class RuntimeManager {
     return this.pending;
   }
   /** 明确重试时重新允许有限次数自动恢复 */
-  async retry(): Promise<PythonCollectorClient> { this.restartAttempts = 0; return this.connect(); }
+  async retry(): Promise<LocalCollectorClient> { this.restartAttempts = 0; return this.connect(); }
   /** 从私有发现文件验证已有实例 */
-  private async discover(): Promise<PythonCollectorClient | undefined> {
+  private async discover(): Promise<LocalCollectorClient | undefined> {
     try {
       // 发现文件必须属于当前用户且不可被其他用户读写。
       const path = join(homedir(), 'Library/Application Support/Obsidian WeChat Reader/runtime/instance.json');
@@ -42,15 +42,15 @@ export class RuntimeManager {
       if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new Error('发现文件权限不安全');
       // 仅接受预期程序版本与合法实例结构。
       const discovery = JSON.parse(await readFile(path, 'utf8')) as Discovery;
-      if (discovery.programId !== 'obsidian-wechat-reader-companion' || discovery.apiVersion !== 1 || discovery.engineVersion !== '0.1.0' || typeof discovery.key !== 'string' || discovery.key.length < 32) throw new Error('采集程序发现信息不兼容');
+      if (discovery.programId !== 'obsidian-wechat-reader-companion' || discovery.apiVersion !== 1 || discovery.engineVersion !== 'ts-1' || typeof discovery.key !== 'string' || discovery.key.length < 32) throw new Error('采集程序发现信息不兼容');
       // 端口开放并不代表程序身份正确。
-      const client = new PythonCollectorClient(discovery);
+      const client = new LocalCollectorClient(discovery);
       await client.health();
       return client;
     } catch { return undefined; }
   }
   /** 使用绝对可执行路径和参数数组启动，不依赖 shell 或 PATH */
-  private async start(): Promise<PythonCollectorClient> {
+  private async start(): Promise<LocalCollectorClient> {
     if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('首个内测包仅支持 macOS Apple Silicon');
     // 连续失败后有限退避，面板轮询不能触发无限重启。
     if (this.restartAttempts) await new Promise(resolve => setTimeout(resolve, Math.min(this.restartAttempts * 2000, 6000)));
@@ -61,7 +61,7 @@ export class RuntimeManager {
       const executable = join(this.pluginDirectory, 'engine', 'wechat-reader-companion', 'wechat-reader-companion');
       await access(executable).catch(() => { throw new Error('缺少采集附属程序，请安装包含 engine 目录的完整内测包'); });
       // 不继承用户代理注入或 Python 路径，运行环境只来自当前进程基础变量。
-      const child = spawn(executable, ['--root', join(homedir(), 'Library/Application Support/Obsidian WeChat Reader')], { detached: true, stdio: 'ignore', shell: false });
+      const child = spawn(executable, ['--root', join(homedir(), 'Library/Application Support/Obsidian WeChat Reader')], { detached: true, stdio: 'ignore', shell: false, env:{HOME:homedir(),PATH:'/usr/bin:/bin:/usr/sbin:/sbin',...(process.env.TMPDIR?{TMPDIR:process.env.TMPDIR}:{})} });
       // 子进程由租约管理，禁用一个插件不会直接终止其他库的采集。
       let spawnError = false;
       child.on('error', () => { spawnError = true; });
