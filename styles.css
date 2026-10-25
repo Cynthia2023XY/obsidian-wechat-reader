@@ -1,5 +1,5 @@
 /* 订阅树与弹窗只使用 Obsidian 主题变量，深浅主题切换无需重载。 */
-.wr-sidebar-view{display:flex;flex-direction:column;padding:12px 10px!important;min-height:0;height:100%;background:var(--background-primary);color:var(--text-normal)}
+.wr-sidebar-view{display:flex;flex-direction:column;padding:12px 10px!important;min-height:0;height:100%;background:transparent;color:var(--text-normal)}
 .wr-sidebar-toolbar{display:flex;align-items:center;gap:4px;flex-shrink:0;padding:4px 2px 12px}
 .wr-sidebar-toolbar strong{font-size:var(--font-ui-medium);font-weight:var(--font-semibold);margin-right:auto}
 .wr-sidebar-toolbar button{box-shadow:none;background:transparent;border:0;padding:5px;color:var(--text-muted)}
@@ -24,7 +24,7 @@ button.wr-article-row{display:grid;grid-template-columns:12px minmax(0,1fr);gap:
 .wr-sidebar-bottom{display:flex;gap:6px;flex-shrink:0;border-top:1px solid var(--background-modifier-border);padding-top:10px}
 button.wr-text-button{background:transparent;box-shadow:none;border:0;color:var(--text-muted);font-size:var(--font-ui-smaller);padding:5px 8px;height:auto}
 button.wr-text-button:hover{background:var(--background-modifier-hover);color:var(--text-normal)}
-.modal.wr-article-modal{width:800px;max-width:calc(100vw - 48px);height:min(860px,90vh);padding:0;display:flex;flex-direction:column;overflow:hidden;background:var(--background-primary);color:var(--text-normal)}
+.modal.wr-article-modal{width:var(--wr-reader-width,720px);max-width:calc(100vw - 48px);height:min(860px,90vh);padding:0;display:flex;flex-direction:column;overflow:hidden;background:var(--background-primary);color:var(--text-normal)}
 .wr-article-modal .modal-close-button,.wr-article-modal .modal-header-button{top:14px;right:14px;color:var(--text-muted)}
 .wr-article-modal .modal-title:empty{display:none}.wr-article-modal .modal-content.wr-modal-layout{margin:0;padding:0;display:flex;flex-direction:column;min-height:0;height:100%;overflow:hidden}
 .wr-modal-toolbar{display:flex;align-items:center;gap:7px;padding:14px 48px 14px 20px;flex-shrink:0;border-bottom:1px solid var(--background-modifier-border);background:var(--background-primary)}

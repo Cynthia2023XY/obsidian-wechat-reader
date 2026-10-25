@@ -1,6 +1,7 @@
 import { Plugin, FileSystemAdapter, Notice, PluginSettingTab, Setting, WorkspaceLeaf } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { readerWidth, DEFAULT_READER_WIDTH, MIN_READER_WIDTH, MAX_READER_WIDTH } from './views/reader-preferences';
 import { ReadingStore } from './reading/state';
 import { RuntimeManager } from './runtime/manager';
 import { ReaderView, VIEW_TYPE } from './views/reader';
@@ -13,7 +14,7 @@ import type { CollectorProvider, ReaderData } from './collector/types';
 /** 通用 RSS 阅读插件，普通订阅与公众号共享原生阅读交互 */
 export default class WeChatReaderPlugin extends Plugin {
     /** 当前库设置与阅读状态，保持一期 ID 和关联不变 */
-    data: ReaderData = { archiveFolder: 'RSS阅读', reading: {}, feeds: [], wechatEnabled: false, wechatFeeds: [] };
+    data: ReaderData = { archiveFolder: 'RSS阅读', reading: {}, feeds: [], wechatEnabled: false, wechatFeeds: [], readerModalWidth: DEFAULT_READER_WIDTH };
     /** 公众号专用运行时按需启动，普通 RSS 不依赖此程序 */
     runtime!: RuntimeManager;
     readingState!: ReadingStore;
@@ -34,6 +35,7 @@ export default class WeChatReaderPlugin extends Plugin {
         // 一期 data.json 中只有阅读偏好，新增配置保留默认值。
         const saved = await this.loadData();
         this.data = { ...this.data, ...saved, reading: saved?.reading || {}, feeds: saved?.feeds || [], wechatFeeds: saved?.wechatFeeds || [], wechatEnabled: saved?.wechatEnabled ?? (!!saved && !Array.isArray(saved.feeds)) };
+        this.data.readerModalWidth = readerWidth(this.data.readerModalWidth);
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
             new Notice('当前内测包需要桌面本机笔记库');
             return;
@@ -146,6 +148,20 @@ class ReaderSettings extends PluginSettingTab {
             await this.plugin.persist();
         }
         catch { /* 输入过程保持最近有效位置。 */ } }));
+        new Setting(this.containerEl).setName('阅读弹窗宽度').setDesc('默认 720 像素，范围 480～1000 像素。下次打开阅读弹窗时生效；小窗口会自动限制在可视范围内。').addSlider(slider => slider
+            .setLimits(MIN_READER_WIDTH, MAX_READER_WIDTH, 20)
+            .setValue(readerWidth(this.plugin.data.readerModalWidth))
+            .setDynamicTooltip()
+            .onChange(async value => {
+                const previous = this.plugin.data.readerModalWidth;
+                const width = readerWidth(value);
+                this.plugin.data.readerModalWidth = width;
+                try { await this.plugin.persist(); }
+                catch {
+                    if (this.plugin.data.readerModalWidth === width) { this.plugin.data.readerModalWidth = previous; slider.setValue(readerWidth(previous)); }
+                    new Notice('保存弹窗宽度失败，请重试');
+                }
+            }));
         new Setting(this.containerEl).setName('启用微信公众号').setDesc('普通 RSS 不需要开启。公众号能力使用独立 TS 运行时。').addToggle(toggle => toggle.setValue(this.plugin.data.wechatEnabled).onChange(async (value) => { if (value) {
             try {
                 await this.plugin.service.enableWeChat();

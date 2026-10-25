@@ -2,9 +2,17 @@
 
 Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公众号，在原生弹窗中阅读、切换、收藏与归档。界面直接使用 Obsidian 主题变量，自动跟随深色、浅色主题。
 
+## 许可与运行说明
+
+本插件采用 [MIT License](LICENSE)。旧版采集实现参考并保留 [wechat-mp-tools](https://github.com/x554960766/wechat-mp-tools) 的 MIT 许可；第三方运行依赖的许可随完整包附带。
+
+普通 RSS/Atom 会联网访问用户填写的源和文章图片地址。公众号功能需要微信读书账号，会访问微信/微信读书服务以扫码、查询公众号和下载正文，必要时使用本机 Chrome 或 Edge。插件会读写笔记库之外的本机共享目录，保存凭据、文章与采集进度，位置详见下文。不包含遥测、广告或付费功能，不自动下载安装或更新自身及依赖。
+
+完整包目前仅适用于 macOS Apple Silicon。仅安装标准 `main.js`、`manifest.json`、`styles.css` 时可使用普通 RSS/Atom；公众号功能还需用户手动从本 Release 的完整包中复制 `engine/`。没有附属程序时会给出安装提示，不会自动下载依赖。
+
 ## 安装和使用
 
-1. 解压 `dist/wechat-reader-0.1.0-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
+1. 解压 `dist/wechat-reader-0.2.0-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
 2. 点击 RSS 图标或执行“打开 RSS 阅读侧栏”。首次安装和一期升级默认停靠**右侧栏**，后续保留用户拖动的布局。
 3. 点击 `+` 添加 RSS/Atom XML 地址。菜单支持 OPML 导入预览和导出；重复 URL 保留原源，同名源可分别放在不同分组。右键源可以修改名称、分组、刷新周期或停止自动刷新；历史缓存和阅读状态保留。
 4. 点击文章打开原生阅读弹窗。`← / →` 切换前后文章，`↑ / ↓` 滚动正文，`Esc` 关闭；输入框、输入法和其他弹窗不受影响。打开时冻结文章队列，标记已读后不会跳篇，首尾不循环。
@@ -31,7 +39,7 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 - 默认省电模式：插件以轻量计时器等待到期，再启动服务，任务完成后空闲约 15 秒释放租约；无其他库、任务或扫码需求时服务退出。侧栏不做空闲网络轮询。Obsidian 关闭或睡眠期间不采集，恢复后每个过期源最多补一轮。
 - 设置中可切换常驻模式，以供其他阅读器持续读取本机 RSS 地址；省电模式下此地址只在服务运行时可访问。
 - 刷新设置使用小时：普通 RSS 新订阅默认 1 小时，新公众号默认随机 2～3 小时，已有间隔保持原值。
-- 阅读弹窗宽度为 800px，左右正文边距 28px；小窗口限制在视口内。
+- 阅读弹窗默认宽度为 720px，可在设置“阅读弹窗宽度”中调整为 480～1000px；左右正文边距 28px，小窗口限制在视口内。
 
 ## 数据与一期迁移
 
@@ -59,6 +67,6 @@ npm run test:package
 WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 ```
 
-`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。发布版本号保持 0.1.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save` 和 `portable-subscriptions` 能力；本次升级须包含新版 `engine/`。
+`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.2.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save` 和 `portable-subscriptions` 能力；本次升级须包含新版 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。

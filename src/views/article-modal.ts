@@ -3,6 +3,7 @@ import TurndownService from 'turndown';
 import type WeChatReaderPlugin from '../main';
 import type { Article } from '../collector/types';
 import { archiveArticle, cleanArticle, passiveMarkdown } from '../archive/archive';
+import { readerWidth } from './reader-preferences';
 import { ConfirmModal } from './wechat-modals';
 /** 将文章转换成可分享 Markdown，不泄露本机访问令牌 */
 export function clipboardMarkdown(article: Article): string {
@@ -53,6 +54,7 @@ export class ArticleReaderModal extends Modal {
     /** 创建原生模态布局与独立键盘作用域 */
     onOpen(): void {
         this.modalEl.addClass('wr-article-modal');
+        this.modalEl.style.setProperty('--wr-reader-width', `${readerWidth(this.plugin.data.readerModalWidth)}px`);
         this.contentEl.empty();
         this.contentEl.addClass('wr-modal-layout');
         // 顶部工具栏始终可见，文章切换不重建原生模态。

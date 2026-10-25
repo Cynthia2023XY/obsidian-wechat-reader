@@ -19,7 +19,7 @@ export interface Login { id: string; state: string; qr: string | null }
 /** 每个笔记库单独保存的阅读、收藏及归档状态 */
 export interface ReadingState { read?: boolean; starred?: boolean; archive?: string; version?: string }
 /** 插件保存的数据只包含界面偏好与当前笔记库状态 */
-export interface ReaderData { archiveFolder: string; reading: Record<string, ReadingState>; feeds: Feed[]; wechatEnabled: boolean; wechatFeeds: Feed[]; runtimeMode?: 'power-save' | 'persistent'; uiVersion?: number }
+export interface ReaderData { archiveFolder: string; reading: Record<string, ReadingState>; feeds: Feed[]; wechatEnabled: boolean; wechatFeeds: Feed[]; runtimeMode?: 'power-save' | 'persistent'; readerModalWidth?: number; uiVersion?: number }
 /** TS 采集程序及普通订阅资源的统一适配接口 */
 export interface CollectorProvider {
   health(): Promise<Health>;

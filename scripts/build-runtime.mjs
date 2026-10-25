@@ -24,7 +24,7 @@ await writeFile(join(directory, 'engine.json'), JSON.stringify(metadata, null, 2
 const packageDirectory = 'dist/wechat-reader';
 await rm(packageDirectory, { recursive: true, force: true });
 await mkdir(packageDirectory, { recursive: true });
-for (const name of ['main.js', 'manifest.json', 'styles.css', 'README.md'])
+for (const name of ['main.js', 'manifest.json', 'styles.css', 'README.md', 'LICENSE'])
     await copyFile(name, join(packageDirectory, name));
 await cp('dist/engine', join(packageDirectory, 'engine'), { recursive: true });
 await mkdir(join(packageDirectory, 'licenses'), { recursive: true });

@@ -23,9 +23,9 @@ afterEach(() => { for (const modal of modals.splice(0))
 /** 正文夹具不触发任何网络资源读取 */
 const article = (id: string): Article => ({ id, accountId: 'feed', title: id, url: 'https://example.com/' + id, publishedAt: null, contentVersion: 'v1', state: 'ready', assetState: 'ready', assets: [], html: '<p>可读正文</p>', contentKind: 'full' });
 /** 插件替身保留真实读状态对象以检查副作用 */
-function setup(read: (id: string) => Promise<Article> = async (id) => article(id)) {
+function setup(read: (id: string) => Promise<Article> = async (id) => article(id), width?: number) {
     // 当前用例所需的隔离输入、依赖或断言结果。
-    const plugin = { app: {}, register: vi.fn(), data: { reading: {}, archiveFolder: 'RSS' }, persist: vi.fn(async () => { }), service: { article: vi.fn(read), feeds: () => [{ id: 'feed', title: '源名称' }], onChange: vi.fn(), articles: () => ['rss_a', 'rss_b', 'rss_c'].map(article), retryArticle: vi.fn(async () => {}), contentProvider: () => ({ asset: vi.fn() }) } };
+    const plugin = { app: {}, register: vi.fn(), data: { reading: {}, archiveFolder: 'RSS', readerModalWidth: width }, persist: vi.fn(async () => { }), service: { article: vi.fn(read), feeds: () => [{ id: 'feed', title: '源名称' }], onChange: vi.fn(), articles: () => ['rss_a', 'rss_b', 'rss_c'].map(article), retryArticle: vi.fn(async () => {}), contentProvider: () => ({ asset: vi.fn() }) } };
     // 当前用例所需的隔离输入、依赖或断言结果。
     const readingState = new ReadingStore(plugin.data as never, () => plugin.persist(), () => plugin.service.onChange());
     const configured = { ...plugin, readingState };
@@ -37,6 +37,15 @@ function setup(read: (id: string) => Promise<Article> = async (id) => article(id
     return { plugin: configured, modal, done };
 }
 describe('原生阅读弹窗交互', () => {
+    it('默认宽度收窄至 720px，并使用当前库的自定义宽度', () => {
+        expect(setup().modal.modalEl.style.getPropertyValue('--wr-reader-width')).toBe('720px');
+        expect(setup(undefined, 640).modal.modalEl.style.getPropertyValue('--wr-reader-width')).toBe('640px');
+    });
+    it('无效或过大的配置不会让弹窗失去宽度限制', () => {
+        expect(setup(undefined, NaN).modal.modalEl.style.getPropertyValue('--wr-reader-width')).toBe('720px');
+        expect(setup(undefined, 200).modal.modalEl.style.getPropertyValue('--wr-reader-width')).toBe('480px');
+        expect(setup(undefined, 3000).modal.modalEl.style.getPropertyValue('--wr-reader-width')).toBe('1000px');
+    });
     it('正文展示后已读，固定队列切换不因已读过滤跳篇，首尾不循环', async () => {
         // 正文展示后已读，固定队列切换不因已读过滤跳篇，首尾不循环所需的隔离输入、依赖或断言结果。
         const { plugin, modal } = setup();
