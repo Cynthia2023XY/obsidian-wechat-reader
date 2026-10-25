@@ -206,7 +206,7 @@ export class Collector {
         // 只接受明确文章正文容器，错误页不算正文就绪。
         const content = article.retryImages ? document.body : document.querySelector('#js_content,.rich_media_content,#js_article');
         if (!content || (!content.textContent?.trim() && !content.querySelector('img')))
-            throw new Problem('EMPTY_CONTENT', '页面缺少有效正文，未计入阅读成功', true);
+            throw new Problem('EMPTY_CONTENT', '页面缺少有效正文，正文下载未成功', true);
         // 删除脚本、表单与嵌入式执行内容，随后按标签白名单清理。
         for (const tag of content.querySelectorAll('script,style,iframe,object,embed,form,input,svg,math,link,meta,base'))
             tag.remove();

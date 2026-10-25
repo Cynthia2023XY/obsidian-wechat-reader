@@ -37,7 +37,7 @@ describe('附属程序生命周期',()=>{
     vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture',port:54321,key:'fixture-key-with-sufficient-length-32'}));
     vi.mocked(fs.access).mockClear();
     // 按 URL 返回健康响应或客户端租约，不使用真实网络。
-    const request=vi.spyOn(obsidian,'requestUrl').mockImplementation(async(options:any)=>({status:200,json:{data:options.url.endsWith('/health') ? {programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture'} : {id:'client-fixture'}}}) as never);
+    const request=vi.spyOn(obsidian,'requestUrl').mockImplementation(async(options:any)=>({status:200,json:{data:options.url.endsWith('/health') ? {programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture',capabilities:['power-save','portable-subscriptions']} : {id:'client-fixture'}}}) as never);
     // 对已有实例只能注册租约，不应访问或拉起可执行程序。
     const runtime=new RuntimeManager('/fixture/plugin',vi.fn());
     expect(await runtime.connect()).toBe(await runtime.connect());
@@ -46,4 +46,25 @@ describe('附属程序生命周期',()=>{
     expect(request.mock.calls.some(([request]:any[])=>request.method==='DELETE' && request.url.endsWith('/v1/clients/client-fixture'))).toBe(true);
     await expect(runtime.connect()).rejects.toThrow('插件已卸载');
   });
+  it('短操作空闲后释放租约，长操作与常驻模式持续保护连接', async () => {
+    vi.useFakeTimers();
+    vi.mocked(fs.stat).mockResolvedValue({uid:process.getuid?.(),mode:0o100600} as never);
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture',port:54321,key:'fixture-key-with-sufficient-length-32'}));
+    const request=vi.spyOn(obsidian,'requestUrl').mockImplementation(async(options:any)=>({status:200,json:{data:options.url.endsWith('/health') ? {programId:'obsidian-wechat-reader-companion',apiVersion:1,engineVersion:'ts-1',instanceId:'fixture',capabilities:['power-save','portable-subscriptions']} : {id:'client-fixture'}}}) as never);
+    const runtime=new RuntimeManager('/fixture/plugin',vi.fn());
+    const release=await runtime.acquire();
+    await vi.advanceTimersByTimeAsync(90000);
+    expect(request.mock.calls.filter(([options]:any[])=>options.method==='DELETE')).toHaveLength(0);
+    release();
+    await vi.advanceTimersByTimeAsync(15001);
+    expect(request.mock.calls.filter(([options]:any[])=>options.method==='DELETE')).toHaveLength(1);
+    await runtime.setPersistent(true);
+    await vi.advanceTimersByTimeAsync(90000);
+    expect(request.mock.calls.filter(([options]:any[])=>options.method==='DELETE')).toHaveLength(1);
+    await runtime.setPersistent(false);
+    await vi.advanceTimersByTimeAsync(15001);
+    expect(request.mock.calls.filter(([options]:any[])=>options.method==='DELETE')).toHaveLength(2);
+    await runtime.dispose();
+  });
+
 });

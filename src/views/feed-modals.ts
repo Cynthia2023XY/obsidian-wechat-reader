@@ -1,3 +1,4 @@
+import { intervalMinutes, intervalHours, nextRefresh } from '../feeds/interval';
 import { Modal, Notice, Setting } from 'obsidian';
 import type WeChatReaderPlugin from '../main';
 import type { Feed, ImportFeed } from '../collector/types';
@@ -87,14 +88,18 @@ export class FeedSettingsModal extends Modal {
     onOpen(): void {
         this.contentEl.createEl('h2', { text: '订阅设置' });
         // 所有修改先暂存，点击保存后再更新配置。
-        let title = this.feed.title, folder = this.feed.folder, interval = this.feed.intervalMinutes, enabled = this.feed.enabled;
+        let title = this.feed.title, folder = this.feed.folder, interval = intervalHours(this.feed.intervalMinutes), enabled = this.feed.enabled;
         new Setting(this.contentEl).setName('名称').addText(text => text.setValue(title).onChange(value => { title = value; }));
         new Setting(this.contentEl).setName('分组').addText(text => text.setValue(folder).onChange(value => { folder = value; }));
         new Setting(this.contentEl).setName('自动刷新').addToggle(toggle => toggle.setValue(enabled).onChange(value => { enabled = value; }));
-        new Setting(this.contentEl).setName('刷新间隔（分钟）').addText(text => text.setValue(String(interval)).onChange(value => { interval = Number(value); }));
-        new Setting(this.contentEl).addButton(button => button.setButtonText('保存').setCta().onClick(async () => { if (!title.trim() || !Number.isFinite(interval) || interval < 5) {
-            new Notice('名称不能为空，刷新间隔至少 5 分钟');
-            return;
-        } await this.plugin.service.update(this.feed, { title: title.trim(), folder, intervalMinutes: interval, enabled }); this.close(); }));
+        new Setting(this.contentEl).setName('刷新间隔（小时）').setDesc('默认 1 小时；可输入小数，最低 5 分钟，精确到整分钟。').addText(text => text.setValue(interval).onChange(value => { interval = value; }));
+        this.contentEl.createEl('p', { text: nextRefresh(this.feed.retryAt || ((this.feed.checkedAt || Date.now()) + this.feed.intervalMinutes * 60000), !!this.feed.retryAt) });
+        new Setting(this.contentEl).addButton(button => button.setButtonText('保存').setCta().onClick(async () => {
+            try {
+                if (!title.trim()) throw new Error('名称不能为空');
+                await this.plugin.service.update(this.feed, { title: title.trim(), folder, intervalMinutes: intervalMinutes(interval), enabled });
+                this.close();
+            } catch (error) { new Notice(error instanceof Error ? error.message : '保存失败'); }
+        }));
     }
 }

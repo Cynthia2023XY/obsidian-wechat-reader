@@ -1,6 +1,8 @@
+import { intervalMinutes, intervalHours, nextRefresh } from '../feeds/interval';
 import { Modal, Notice, Setting } from 'obsidian';
 import type WeChatReaderPlugin from '../main';
-import type { Account, Login, Resolution } from '../collector/types';
+import { wechatAccountId } from '../collector/subscriptions';
+import type { Account, Login, Resolution, Feed } from '../collector/types';
 /** 登录状态的中文展示 */
 const LOGIN_LABELS: Record<string, string> = { scanning: '请用微信扫描二维码', scanned: '已扫码，请在手机确认', success: '登录成功，可以添加公众号', failed: '登录失败，请重新获取二维码', expired: '二维码已过期，请重新扫码', idle: '尚未开始登录' };
 /** 用户确认后才提交订阅，不创建身份不完整的空订阅 */
@@ -12,10 +14,10 @@ export class SubscribeModal extends Modal {
     /** 当前粘贴的原文链接 */
     private url = '';
     /** 绑定当前库和完成回调 */
-    constructor(private plugin: WeChatReaderPlugin, private done: () => Promise<void>) { super(plugin.app); }
+    constructor(private plugin: WeChatReaderPlugin, private done: () => Promise<void>, private recovery?: Feed) { super(plugin.app); }
     /** 两步引导：先解析身份，再确认名称和订阅 */
     onOpen(): void {
-        this.contentEl.createEl('h2', { text: '添加公众号' });
+        this.contentEl.createEl('h2', { text: this.recovery ? '补充公众号恢复链接' : '添加公众号' });
         this.contentEl.createEl('p', { text: '粘贴任意一篇公众号文章链接。首次优先下载这篇原文，并同步近期文章，每轮最多 10 篇。' });
         new Setting(this.contentEl).setName('文章链接').addText(text => text.setPlaceholder('https://mp.weixin.qq.com/s/…').onChange(value => { this.url = value; this.resolution = undefined; }));
         // 身份展示只由已验证 API 填充。
@@ -23,8 +25,10 @@ export class SubscribeModal extends Modal {
         new Setting(this.contentEl).addButton(button => button.setButtonText('解析公众号').setCta().onClick(async () => {
             button.setDisabled(true);
             try {
-                this.resolution = await (await this.plugin.provider()).call<Resolution>('/v1/accounts/resolve', 'POST', { url: this.url });
-                this.name = this.resolution.originalName;
+                const resolution = await (await this.plugin.provider()).call<Resolution>('/v1/accounts/resolve', 'POST', { url: this.url });
+                if (this.recovery && wechatAccountId(resolution.bookId) !== this.recovery.id) throw new Error('这篇文章不属于原来的公众号，请更换链接');
+                this.resolution = resolution;
+                this.name = this.recovery?.title || resolution.originalName;
                 identity.setText(`名称：${this.resolution.originalName} · ID：${this.resolution.bookId}。请在下方确认显示名称。`);
                 nameInput.setValue(this.name === '微信公众号' ? '' : this.name);
             }
@@ -45,7 +49,7 @@ export class SubscribeModal extends Modal {
             }
             button.setDisabled(true);
             try {
-                await (await this.plugin.provider()).call('/v1/accounts', 'POST', { resolutionId: this.resolution.resolutionId, displayName: this.name });
+                await this.plugin.service.subscribeWeChat(this.resolution, this.url, this.name);
                 this.close();
                 await this.done();
             }
@@ -62,6 +66,7 @@ export class SubscribeModal extends Modal {
 export class LoginModal extends Modal {
     /** 当前二维码会话 */
     private login?: Login;
+    private releaseSession?: () => void;
     /** 当前二维码轮询计时器 */
     private timer?: ReturnType<typeof setInterval>;
     /** 模态窗口已关闭时不再追加图片 */
@@ -83,6 +88,8 @@ export class LoginModal extends Modal {
             if (this.timer)
                 clearInterval(this.timer);
             try {
+                if (!this.releaseSession) this.releaseSession = await this.plugin.runtime.acquire();
+                if (this.closed) { this.releaseSession(); this.releaseSession = undefined; return; }
                 this.login = await (await this.plugin.provider()).call<Login>('/v1/auth/login', 'POST', {});
                 if (this.closed)
                     return;
@@ -102,10 +109,19 @@ export class LoginModal extends Modal {
                         if (['success', 'failed', 'expired'].includes(this.login.state)) {
                             clearInterval(this.timer);
                             display.empty();
+                            if (this.login.state === 'success') {
+                                status.setText('登录成功，正在恢复本库公众号订阅…');
+                                const result = await this.plugin.service.restoreSubscriptions(true);
+                                if (result.restored) await this.plugin.service.syncWeChat();
+                                if (!this.closed) status.setText(`登录成功，已恢复 ${result.restored} 个订阅${result.needsLink ? `；${result.needsLink} 个旧订阅需右键补充恢复链接` : ''}${result.failed ? `；${result.failed} 个恢复失败，请稍后重试` : ''}。`);
+                            }
+                            this.releaseSession?.();
+                            this.releaseSession = undefined;
                         }
                     }
                     catch (error) {
                         status.setText(error instanceof Error ? error.message : '登录状态读取失败');
+                        if (this.login?.state === 'success') { this.releaseSession?.(); this.releaseSession = undefined; }
                     }
                     finally {
                         this.polling = false;
@@ -120,7 +136,7 @@ export class LoginModal extends Modal {
         void start();
     }
     /** 离开窗口停止请求，服务端扫码会话按有效期自然终止 */
-    onClose(): void { this.closed = true; if (this.timer)
+    onClose(): void { this.closed = true; this.releaseSession?.(); this.releaseSession = undefined; if (this.timer)
         clearInterval(this.timer); this.contentEl.empty(); }
 }
 /** 订阅设置保留历史文章，删除订阅需明确确认 */
@@ -136,17 +152,18 @@ export class AccountModal extends Modal {
         // 自动开关只影响后续调度，当前有界任务继续收尾。
         let auto = this.account.autoSync;
         // 随机同步间隔的下界。
-        let minimum = this.account.intervalMin;
+        let minimum = intervalHours(this.account.intervalMin);
         // 随机同步间隔的上界。
-        let maximum = this.account.intervalMax;
+        let maximum = intervalHours(this.account.intervalMax);
         new Setting(this.contentEl).setName('显示名称').addText(text => text.setValue(name).onChange(value => { name = value; }));
         new Setting(this.contentEl).setName('自动同步').addToggle(toggle => toggle.setValue(auto).onChange(value => { auto = value; }));
-        new Setting(this.contentEl).setName('最短间隔（分钟）').addText(text => text.setValue(String(minimum)).onChange(value => { minimum = Number(value); }));
-        new Setting(this.contentEl).setName('最长间隔（分钟）').addText(text => text.setValue(String(maximum)).onChange(value => { maximum = Number(value); }));
+        new Setting(this.contentEl).setName('最短间隔（小时）').setDesc('每轮同步结束后，在最短与最长间隔之间随机安排下一次；范围 1～24 小时。').addText(text => text.setValue(minimum).onChange(value => { minimum = value; }));
+        new Setting(this.contentEl).setName('最长间隔（小时）').addText(text => text.setValue(maximum).onChange(value => { maximum = value; }));
+        this.contentEl.createEl('p', { text: nextRefresh(this.account.nextSyncAt * 1000) });
         new Setting(this.contentEl).addButton(button => button.setButtonText('保存设置').setCta().onClick(async () => {
             button.setDisabled(true);
             try {
-                await (await this.plugin.provider()).call(`/v1/accounts/${this.account.id}`, 'PATCH', { displayName: name, autoSync: auto, intervalMin: minimum, intervalMax: maximum });
+                await (await this.plugin.provider()).call(`/v1/accounts/${this.account.id}`, 'PATCH', { displayName: name, autoSync: auto, intervalMin: intervalMinutes(minimum, 60, 1440), intervalMax: intervalMinutes(maximum, 60, 1440) });
                 this.close();
                 await this.done();
             }

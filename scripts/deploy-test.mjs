@@ -2,7 +2,7 @@ import { readFile, mkdir, copyFile, cp, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 /** 本次专用测试笔记库，禁止写入正式雅思库 */
-const vault = '/Users/dingxinyi.2/Documents/practice/obsidian测试笔记库/新功能测试仓库';
+const vault = process.env.WECHAT_READER_TEST_VAULT || '/Users/dingxinyi.2/Documents/practice/obsidian测试笔记库/新功能测试仓库';
 /** 插件身份以构建清单为准 */
 const manifest = JSON.parse(await readFile('manifest.json','utf8'));
 /** 仅覆盖运行产物，保留既有设置和笔记 */

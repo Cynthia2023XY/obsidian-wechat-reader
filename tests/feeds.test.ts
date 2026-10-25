@@ -109,6 +109,17 @@ describe('普通 RSS 的独立缓存与刷新', () => {
         expect(data.reading[old.id]).toEqual({ read: true, starred: true });
         expect(feed.error).toBeUndefined();
     });
+    it('恢复前台按实际到期刷新一次，错过多个周期不补跑', async () => {
+        const { service, connect } = await setup();
+        const network = vi.spyOn(obsidian, 'requestUrl').mockResolvedValue({ status: 200, text: rss(item('1')), headers: {} } as never);
+        const feed = await service.add('https://example.com/feed');
+        feed.checkedAt = Date.now() - 10 * 3600000;
+        network.mockClear();
+        await service.resume();
+        await service.resume();
+        expect(network).toHaveBeenCalledTimes(1);
+        expect(connect).not.toHaveBeenCalled();
+    });
     it('并发刷新共享请求，图片 MIME 在刷新和重载后保持一致', async () => {
         // 并发刷新共享请求，图片 MIME 在刷新和重载后保持一致所需的隔离输入、依赖或断言结果。
         const { service, data, directory, connect } = await setup();
@@ -135,4 +146,88 @@ describe('普通 RSS 的独立缓存与刷新', () => {
         expect(network).toHaveBeenCalledTimes(1);
         expect(reloaded.articles()[0].assets[0].mime).toBe('image/png');
     });
+});
+
+describe('公众号省电阅读缓存', () => {
+    it('本地索引重开不启动服务，首次补读后正文和图片离线复用', async () => {
+        const { mkdir, writeFile } = await import('node:fs/promises');
+        const directory = await mkdtemp(join(tmpdir(), 'wechat-cache-test-'));
+        const root = join(directory, 'shared');
+        await mkdir(join(root, 'runtime'), { recursive: true });
+        const article = { id: 'article_test', accountId: 'account_test', title: '缓存正文', url: 'https://mp.weixin.qq.com/s/test', publishedAt: null, summary: '', state: 'ready', assetState: 'ready', contentVersion: 'v1', assets: [{ id: 'image', state: 'ready', mime: 'image/png' }] };
+        const snapshot = { schemaVersion: 1, revision: 'v1', createdAt: Date.now(), loggedIn: true, accounts: [{ id: 'account_test', displayName: '公众号', subscribed: true, autoSync: true, nextSyncAt: Date.now() / 1000 + 7200, intervalMin: 120 }], articles: [article], activeAccountIds: [] };
+        await writeFile(join(root, 'runtime/schedule.json'), JSON.stringify(snapshot));
+        const data: ReaderData = { archiveFolder: 'RSS', reading: {}, feeds: [], wechatFeeds: [], wechatEnabled: true };
+        const provider = { call: vi.fn(async () => ({ ...article, html: '<p>缓存正文</p>' })), asset: vi.fn(async () => new Uint8Array([1,2,3]).buffer) };
+        const connect = vi.fn(async () => provider as never);
+        const hooks = { root, session: async <T>(action: () => Promise<T>) => action() };
+        const service = new FeedService(data, directory, async () => {}, connect, hooks);
+        cleanups.push(async () => { service.dispose(); await rm(directory, { recursive: true, force: true }); });
+        await service.load();
+        expect(service.articles()).toHaveLength(1);
+        expect(connect).not.toHaveBeenCalled();
+        expect((await service.article(article.id)).html).toContain('缓存正文');
+        await service.contentProvider().asset(article.id, article.assets[0]);
+        service.dispose();
+        connect.mockRejectedValue(new Error('不应启动引擎') as never);
+        const reload = new FeedService(data, directory, async () => {}, connect, hooks);
+        cleanups.push(async () => reload.dispose());
+        await reload.load();
+        const calls = connect.mock.calls.length;
+        expect((await reload.article(article.id)).html).toContain('缓存正文');
+        expect(new Uint8Array(await reload.contentProvider().asset(article.id, article.assets[0]))).toEqual(new Uint8Array([1,2,3]));
+        expect(connect).toHaveBeenCalledTimes(calls);
+        expect(data.reading).toEqual({});
+    });
+});
+
+it('迁移电脑后，空共享快照和空接口不能删除本库公众号入口及历史缓存', async () => {
+    const { mkdir, writeFile, readFile } = await import('node:fs/promises');
+    const directory = await mkdtemp(join(tmpdir(), 'wechat-migration-test-'));
+    const root = join(directory, 'shared');
+    await mkdir(join(root, 'runtime'), { recursive: true });
+    await mkdir(join(directory, 'cache'), { recursive: true });
+    const id = 'account_' + 'a'.repeat(32);
+    const oldFeed: Feed = { id, kind: 'wechat', title: '旧电脑的公众号', url: 'https://mp.weixin.qq.com/', folder: '公众号', enabled: true, intervalMinutes: 60 };
+    const oldArticle = { id: 'article_old', accountId: id, title: '旧文章', state: 'ready', contentVersion: 'v1', assets: [] };
+    await writeFile(join(directory, 'cache', `${id}.json`), JSON.stringify({ articles: [oldArticle] }));
+    await writeFile(join(root, 'runtime/schedule.json'), JSON.stringify({ schemaVersion: 1, revision: 'empty', createdAt: Date.now(), loggedIn: false, accounts: [], articles: [], activeAccountIds: [] }));
+    const data: ReaderData = { archiveFolder: 'RSS', reading: { article_old: { read: true, starred: true } }, feeds: [], wechatFeeds: [oldFeed], wechatEnabled: true };
+    const provider = { call: vi.fn(async () => ({ items: [], nextCursor: null })) };
+    const connect = vi.fn(async () => provider as never);
+    const service = new FeedService(data, directory, async () => {}, connect, { root, session: async action => action() });
+    cleanups.push(async () => { service.dispose(); await rm(directory, { recursive: true, force: true }); });
+    await service.load();
+    expect(connect).not.toHaveBeenCalled();
+    expect(data.wechatFeeds[0]).toMatchObject({ id, title: oldFeed.title, missingLocalData: true });
+    expect(service.articles()[0].id).toBe(oldArticle.id);
+    await service.refreshWeChat();
+    expect(data.wechatFeeds).toHaveLength(1);
+    expect(service.articles()).toHaveLength(1);
+    expect(JSON.parse(await readFile(join(directory, 'cache', `${id}.json`), 'utf8')).articles).toHaveLength(1);
+    expect(data.reading.article_old).toEqual({ read: true, starred: true });
+    await expect(service.refresh(data.wechatFeeds[0])).rejects.toThrow('补充恢复链接');
+    // 数据迁回后，相同稳定 ID 自动恢复，空增量也不能清空旧文章。
+    provider.call.mockImplementation(async (path?: unknown) => ({ items: String(path).includes('/accounts') ? [{ id, displayName: '已迁回', subscribed: true, autoSync: true, intervalMin: 60, nextSyncAt: Date.now()/1000 + 3600 }] : [], nextCursor: null }) as never);
+    await service.refreshWeChat();
+    expect(data.wechatFeeds[0].title).toBe('已迁回');
+    expect(data.wechatFeeds[0].missingLocalData).toBeUndefined();
+    expect(service.articles()).toHaveLength(1);
+});
+
+it('一次性恢复订阅配置只补充入口，不覆盖当前阅读状态和已有订阅', async () => {
+    const { mkdir, writeFile, access } = await import('node:fs/promises');
+    const directory = await mkdtemp(join(tmpdir(), 'wechat-recovery-test-'));
+    await mkdir(join(directory, 'cache'), { recursive: true });
+    const recovery = [{ id: 'account_' + 'a'.repeat(32), kind: 'wechat', title: '恢复的公众号', url: 'https://mp.weixin.qq.com/', folder: '公众号', enabled: true, intervalMinutes: 60 }];
+    const path = join(directory, 'cache/wechat-subscriptions-recovery.json');
+    await writeFile(path, JSON.stringify(recovery));
+    const data: ReaderData = { archiveFolder: 'RSS', reading: { new: { read: true } }, feeds: [], wechatFeeds: [], wechatEnabled: false };
+    const service = new FeedService(data, directory, async () => {}, vi.fn());
+    cleanups.push(async () => { service.dispose(); await rm(directory, { recursive: true, force: true }); });
+    await service.load();
+    expect(data.wechatFeeds[0].title).toBe('恢复的公众号');
+    expect(data.reading).toEqual({ new: { read: true } });
+    await expect(access(path)).rejects.toThrow();
+    await expect(access(`${path}.applied`)).resolves.toBeUndefined();
 });

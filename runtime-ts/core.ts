@@ -82,6 +82,7 @@ catch {
 export class Store {
     /** 唯一索引数据库，不依赖 Python 或 Electron 原生模块 ABI */
     db: DatabaseSync;
+    revision = randomUUID();
     /** 当前用户独立存储根目录 */
     constructor(public root: string) {
         for (const name of ['data', 'data/articles', 'data/credentials', 'runtime', 'logs']) {
@@ -147,6 +148,7 @@ export class Store {
         }
         else
             this.db.prepare(`INSERT OR REPLACE INTO ${table} VALUES(?,?)`).run(value.id, JSON.stringify(value));
+        this.revision = randomUUID();
         return value;
     }
     /** 添加或恢复订阅，显示名称改变不会断开历史文章 */
@@ -167,7 +169,7 @@ export class Store {
             account.displayName = name.trim();
         }
         catch {
-            account = { id, platformId: identity.platformId, bookId: identity.bookId, originalName: identity.originalName, displayName: name.trim(), subscribed: true, autoSync: true, nextSyncAt: 0, intervalMin: 60, intervalMax: 90, nextOffset: 0, firstSync: true, blocked: null, lastJobId: null };
+            account = { id, platformId: identity.platformId, bookId: identity.bookId, originalName: identity.originalName, displayName: name.trim(), subscribed: true, autoSync: true, nextSyncAt: 0, intervalMin: 120, intervalMax: 180, nextOffset: 0, firstSync: true, blocked: null, lastJobId: null };
         }
         return this.put('accounts', account);
     }

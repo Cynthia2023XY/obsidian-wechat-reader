@@ -54,6 +54,7 @@ try {
     // 管理请求只在内存中使用访问密钥。
     const call = async (path, method = 'GET') => (await fetch(`http://127.0.0.1:${info.port}${path}`, { method, headers: { 'X-Reader-Key': info.key, 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined })).json();
     /** 安装包独立运行验证的启动、响应或客户端信息 */
+    assert.ok((await call('/v1/health')).data.capabilities.includes('portable-subscriptions'));
     const leaseA = (await call('/v1/clients', 'POST')).data, leaseB = (await call('/v1/clients', 'POST')).data;
     await call(`/v1/clients/${leaseA.id}`, 'DELETE');
     assert.equal((await call(`/v1/clients/${leaseB.id}/renew`, 'POST')).data.id, leaseB.id);
@@ -72,9 +73,15 @@ try {
     assert.equal(after.port, info.port);
     assert.notEqual(after.instanceId, info.instanceId);
     assert.ok((await (await fetch(url)).text()).includes('安装包回归正文'));
-    second.kill('SIGTERM');
-    await exited(second);
-    console.log('安装包回归通过：中文空格路径、随包 Node、单实例、双客户端租约、稳定端口与 RSS 令牌重启复用');
+    // 不持有租约时应自行退出，不能只检查接口状态。
+    await Promise.race([exited(second), new Promise((_, reject) => { const timer = setTimeout(() => reject(Error('省电模式未在 22 秒内退出')), 22000); timer.unref(); })]);
+    assert.equal(second.exitCode, 0);
+    const third = launch(), awake = await health();
+    assert.notEqual(awake.instanceId, after.instanceId);
+    assert.equal(awake.port, info.port);
+    third.kill('SIGTERM');
+    await exited(third);
+    console.log('安装包回归通过：中文空格路径、随包 Node、单实例、双客户端租约、稳定端口、RSS 令牌重启复用、真实空闲退出与再次唤醒');
 }
 finally {
     for (const child of children) {

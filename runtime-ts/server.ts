@@ -7,7 +7,8 @@ import { Collector } from './collector';
 import { ENGINE_VERSION, PROGRAM_ID, Problem, readJson, Store, utc, writeJson } from './core';
 import type { Resolution } from './collector';
 import type { StoredAccount, StoredAsset, StoredJob } from './core';
-import type { Article } from '../src/collector/types';
+import type { Article, ScheduleSnapshot } from '../src/collector/types';
+import { portableSubscription, subscriptionArticleUrl, wechatAccountId } from '../src/collector/subscriptions';
 import { Scheduler } from './jobs';
 import { parseHTML } from 'linkedom';
 /** 运行时根目录参数由插件以数组传入，不使用 shell */
@@ -59,7 +60,30 @@ export class RuntimeServer {
     /** 仅每分钟更新磁盘用量，避免两秒 UI 查询遍历所有图片 */
     private usage = { at: 0, size: 0 };
     /** 启动宽限期允许插件完成健康检查和首次注册 */
-    private grace = Date.now() + 60000;
+    private grace = Date.now() + 15000;
+    private requests = 0;
+    private snapshotKey = '';
+    private snapshotAt = 0;
+    /** 不包含令牌、绝对资源路径或正文的只读索引与调度快照。 */
+    publishSnapshot(): void {
+        const loggedIn = this.collector.auth.status().loggedIn;
+        const key = `${this.store.revision}:${loggedIn}`;
+        if (key === this.snapshotKey && Date.now() - this.snapshotAt < 30000) return;
+        const accounts = this.store.all<StoredAccount>('accounts').map(account => ({ ...account, lastJob: account.lastJobId ? this.store.get<StoredJob>('jobs', account.lastJobId) : undefined }));
+        const snapshot: ScheduleSnapshot = {
+            schemaVersion: 1, revision: this.store.revision, createdAt: Date.now(), loggedIn,
+            accounts, articles: this.store.all<Article>('articles').map(article => this.publicArticle(article)),
+            activeAccountIds: this.store.all<StoredJob>('jobs').filter(job => ['queued', 'running'].includes(job.state)).map(job => job.accountId),
+        };
+        writeJson(join(this.store.root, 'runtime/schedule.json'), snapshot);
+        this.snapshotKey = key; this.snapshotAt = Date.now();
+    }
+    /** 空闲退出不能取消尚未开始的任务或其他客户端操作。 */
+    canExit(now = Date.now()): boolean {
+        return now > this.grace && !this.clients.size && !this.requests && !this.scheduler.busy
+            && !['scanning', 'scanned'].includes(this.collector.auth.status().state)
+            && !this.store.all<StoredJob>('jobs').some(job => ['queued', 'running'].includes(job.state));
+    }
     /** 绑定单写入 SQLite 与 TS 采集适配器 */
     constructor(public store: Store, public collector: Collector) { this.scheduler = new Scheduler(store, collector); this.tokens = readJson(join(store.root, 'data/credentials/rss-tokens.json'), {}); }
     /** 在专用回环地址监听，端口冲突时不偷偷改变持续订阅 URL */
@@ -71,10 +95,12 @@ export class RuntimeServer {
         writeJson(join(this.store.root, 'runtime/instance.json'), { programId: PROGRAM_ID, apiVersion: 1, engineVersion: ENGINE_VERSION, runtimeLanguage: 'typescript', instanceId: this.instanceId, pid: process.pid, port: this.port, key: this.key });
         writeJson(join(this.store.root, 'runtime/settings.json'), { port: this.port });
         this.scheduler.start();
-        this.monitor = setInterval(() => { for (const [id, expires] of this.clients)
-            if (expires <= Date.now())
-                this.clients.delete(id); if (Date.now() > this.grace && !this.clients.size)
-            void this.close(); }, 2000);
+        this.publishSnapshot();
+        this.monitor = setInterval(() => {
+            for (const [id, expires] of this.clients) if (expires <= Date.now()) this.clients.delete(id);
+            this.publishSnapshot();
+            if (this.canExit()) void this.close();
+        }, 2000);
     }
     /** 等待在途任务收尾后正常结束，不破坏其他库和半成品目录 */
     async close(): Promise<void> {
@@ -94,6 +120,7 @@ export class RuntimeServer {
         }>(join(this.store.root, 'runtime/instance.json'), {});
         if (discovery.instanceId === this.instanceId)
             rmSync(join(this.store.root, 'runtime/instance.json'), { force: true });
+        this.publishSnapshot();
         this.store.db.close();
     }
     /** 生成只允许读取当前公众号的持久令牌 */
@@ -106,6 +133,8 @@ export class RuntimeServer {
     /** 原生 HTTP 响应统一携带请求 ID，不泄露异常堆栈 */
     private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         // 请求 ID 与日志中不出现的令牌完全独立。
+        this.requests++;
+        response.once('close', () => { this.requests--; if (!this.stopping) this.publishSnapshot(); });
         const requestId = randomUUID().replace(/-/g, '');
         // 固定防缓存头保护私有二维码与资源响应。
         response.setHeader('X-Request-Id', requestId);
@@ -168,7 +197,17 @@ export class RuntimeServer {
                     this.usage = { at: Date.now(), size: diskUsage(join(this.store.root, 'data')) };
                 // 程序语言和版本需由客户端显式验证，拒绝误复用旧进程。
                 const disk = statfsSync(this.store.root);
-                reply({ programId: PROGRAM_ID, instanceId: this.instanceId, engineVersion: ENGINE_VERSION, runtimeLanguage: 'typescript', apiVersion: 1, schemaVersion: 1, capabilities: ['login', 'subscriptions', 'articles', 'assets', 'rss-export', 'rss-live', 'leases'], browserAvailable: this.collector.browserAvailable(), diskFree: disk.bavail * disk.bsize, diskUsed: this.usage.size });
+                reply({ programId: PROGRAM_ID, instanceId: this.instanceId, engineVersion: ENGINE_VERSION, runtimeLanguage: 'typescript', apiVersion: 1, schemaVersion: 1, capabilities: ['login', 'subscriptions', 'articles', 'assets', 'rss-export', 'rss-live', 'leases', 'power-save', 'portable-subscriptions'], browserAvailable: this.collector.browserAvailable(), diskFree: disk.bavail * disk.bsize, diskUsed: this.usage.size });
+                return;
+            }
+            if (path === '/v1/runtime/state' && request.method === 'GET') {
+                reply({ activeJobs: this.store.all<StoredJob>('jobs').filter(job => ['queued', 'running'].includes(job.state)), loggedIn: this.collector.auth.status().loggedIn });
+                return;
+            }
+            if (path === '/v1/sync-due' && request.method === 'POST') {
+                this.scheduler.scheduleDue();
+                this.publishSnapshot();
+                reply({ scheduled: true });
                 return;
             }
             if (path === '/v1/clients' && request.method === 'POST') {
@@ -224,6 +263,43 @@ export class RuntimeServer {
                 reply({ ...identity, resolutionId: id });
                 return;
             }
+            if (path === '/v1/accounts/restore' && request.method === 'POST') {
+                const subscription = portableSubscription(body.subscription);
+                if (!subscription || body.id !== wechatAccountId(subscription.bookId) || typeof body.displayName !== 'string' || !body.displayName.trim() || body.displayName.length > 120)
+                    throw new Problem('INVALID_SUBSCRIPTION', '订阅恢复信息不完整或身份不一致，请补充文章链接');
+                const existing = this.store.all<StoredAccount>('accounts').find(account => account.id === body.id);
+                // 已有共享账户保持原设置与进度，重复恢复不重新启用或重排任务。
+                if (existing) { reply({ account: existing, created: false }); return; }
+                if (!this.collector.auth.status().loggedIn) throw new Problem('AUTH_REQUIRED', '请先扫码登录，再恢复本库公众号订阅', false, 'login');
+                let identity: { platformId: string; bookId: string; originalName: string } | undefined, seed: Resolution['seedArticle'] | undefined;
+                if (subscription.articleUrl) {
+                    try {
+                        const resolved = await this.collector.resolve(subscription.articleUrl);
+                        if (resolved.bookId !== subscription.bookId || resolved.platformId !== subscription.platformId)
+                            throw new Problem('IDENTITY_MISMATCH', '恢复链接与原公众号不一致，请更换文章链接');
+                        identity = resolved; seed = resolved.seedArticle;
+                    } catch (error) {
+                        // 原文失效时仍可按已保存身份恢复；登录和验证问题不得绕过。
+                        if (error instanceof Problem && (error.action || error.code === 'IDENTITY_MISMATCH')) throw error;
+                    }
+                }
+                if (!identity) {
+                    const info = await this.collector.api('/book/info', { bookId: subscription.bookId });
+                    if (typeof info.title !== 'string' || !info.title.trim() || ['微信公众号', '公众号'].includes(info.title.trim()))
+                        throw new Problem('IDENTITY_REQUIRED', '暂时无法确认公众号，请补充一篇原文链接');
+                    identity = { platformId: subscription.platformId, bookId: subscription.bookId, originalName: info.title };
+                }
+                // 网络验证期间其他库可能已恢复同一账户，提交前再次去重。
+                const concurrent = this.store.all<StoredAccount>('accounts').find(account => account.id === body.id);
+                if (concurrent) { reply({ account: concurrent, created: false }); return; }
+                const account = this.store.subscribe(identity, body.displayName);
+                Object.assign(account, { subscribed: subscription.subscribed, autoSync: subscription.autoSync, intervalMin: subscription.intervalMin, intervalMax: subscription.intervalMax, articleUrl: subscription.articleUrl });
+                this.store.put('accounts', account);
+                if (seed) this.store.discover(account, seed);
+                this.publishSnapshot();
+                reply({ account, created: true }, 201);
+                return;
+            }
             if (path === '/v1/accounts' && request.method === 'GET') {
                 reply({ items: this.store.all<StoredAccount>('accounts').map(account => ({ ...account, lastJob: account.lastJobId ? this.store.get('jobs', account.lastJobId) : null })), nextCursor: null });
                 return;
@@ -236,7 +312,10 @@ export class RuntimeServer {
                 if (typeof body.displayName !== 'string')
                     throw new Problem('INVALID_NAME', '请输入显示名称');
                 // 数据库同步方法不会在本原子步骤中让出进程。
-                const account = this.store.subscribe(resolved.identity, body.displayName), seed = this.store.discover(account, resolved.identity.seedArticle);
+                const account = this.store.subscribe(resolved.identity, body.displayName);
+                account.articleUrl = subscriptionArticleUrl(resolved.identity.seedArticle.url);
+                this.store.put('accounts', account);
+                const seed = this.store.discover(account, resolved.identity.seedArticle);
                 // 重复添加已就绪文章复用原任务，不自动启动另一轮采集。
                 const needsSync = account.firstSync || !account.lastJobId || ['pending', 'temporary_failure'].includes(seed.article.state);
                 // 输入的原文优先于近期列表下载。
@@ -271,6 +350,13 @@ export class RuntimeServer {
                     const minimum = body.intervalMin ?? account.intervalMin, maximum = body.intervalMax ?? account.intervalMax;
                     if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || minimum < 60 || minimum > maximum || maximum > 1440)
                         throw new Problem('INVALID_INTERVAL', '间隔范围须为 60～1440 分钟');
+                    if (minimum !== account.intervalMin || maximum !== account.intervalMax) {
+                        const job = account.lastJobId ? this.store.get<StoredJob>('jobs', account.lastJobId) : undefined;
+                        if (job?.state !== 'running') {
+                            const base = job?.finishedAt ? Date.parse(job.finishedAt) / 1000 : Date.now() / 1000;
+                            account.nextSyncAt = base + (minimum + Math.random() * (maximum - minimum)) * 60;
+                        }
+                    }
                     account.intervalMin = minimum;
                     account.intervalMax = maximum;
                     reply(this.store.put('accounts', account));

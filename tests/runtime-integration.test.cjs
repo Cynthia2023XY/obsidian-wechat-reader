@@ -351,3 +351,132 @@ test('上游没有返回有效身份时仍明确失败，不伪造公众号', as
         await assert.rejects(collector.resolve('https://mp.weixin.qq.com/s/test'), error => error.code === 'IDENTITY_REQUIRED');
     }
 });
+
+test('省电快照持久化调度与公共索引，不包含凭据或内部资源路径', t => {
+    const { store, root } = fixture(t), a = account(store);
+    a.nextSyncAt = 1234567890;
+    store.put('accounts', a);
+    const article = store.discover(a, { url: 'https://mp.weixin.qq.com/s/snapshot', title: '快照文章' }).article;
+    article.assets = [{ id: 'asset', state: 'ready', mime: 'image/png', file: '/private/fixture.png' }];
+    store.put('articles', article);
+    const runtime = new RuntimeServer(store, fake());
+    runtime.publishSnapshot();
+    const snapshot = JSON.parse(readFileSync(join(root, 'runtime/schedule.json')));
+    assert.equal(snapshot.schemaVersion, 1);
+    assert.equal(snapshot.accounts[0].nextSyncAt, a.nextSyncAt);
+    assert.equal(snapshot.articles[0].id, article.id);
+    assert.equal(snapshot.articles[0].assets[0].file, undefined);
+    assert.ok(!JSON.stringify(snapshot).includes(runtime.key));
+    assert.equal(snapshot.loggedIn, false);
+});
+
+test('空闲退出受客户端、排队任务、运行任务和扫码保护', t => {
+    const { store } = fixture(t), a = account(store);
+    let login = 'idle';
+    const runtime = new RuntimeServer(store, { ...fake(), auth: { status: () => ({ loggedIn: false, state: login }), dispose() {} } });
+    const future = Date.now() + 60000;
+    assert.equal(runtime.canExit(future), true);
+    runtime.clients.set('other-vault', future + 90000);
+    assert.equal(runtime.canExit(future), false);
+    runtime.clients.clear();
+    login = 'scanning';
+    assert.equal(runtime.canExit(future), false);
+    login = 'idle';
+    const job = store.enqueue(a.id);
+    assert.equal(runtime.canExit(future), false);
+    job.state = 'succeeded';
+    store.put('jobs', job);
+    runtime.scheduler.busy = true;
+    assert.equal(runtime.canExit(future), false);
+    runtime.scheduler.busy = false;
+    assert.equal(runtime.canExit(future), true);
+});
+
+test('到期唤醒接口去重，小时设置回写重算下一次时间', async t => {
+    const { store } = fixture(t), a = account(store);
+    const runtime = store.__runtime = new RuntimeServer(store, { ...fake(), auth: { status: () => ({ loggedIn: true, state: 'idle' }), dispose() {} } });
+    await runtime.listen(0);
+    const call = async (path, body) => (await fetch(`http://127.0.0.1:${runtime.port}${path}`, { method: 'POST', headers: { 'X-Reader-Key': runtime.key, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })).json();
+    await call('/v1/sync-due');
+    await call('/v1/sync-due');
+    assert.equal(store.all('jobs').filter(job => job.state === 'queued').length, 1);
+    const job = store.all('jobs')[0];
+    job.state = 'succeeded'; job.finishedAt = new Date().toISOString(); store.put('jobs', job);
+    const result = await (await fetch(`http://127.0.0.1:${runtime.port}/v1/accounts/${a.id}`, { method: 'PATCH', headers: { 'X-Reader-Key': runtime.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ intervalMin: 240, intervalMax: 240 }) })).json();
+    assert.equal(result.data.intervalMin, 240);
+    assert.ok(Math.abs(result.data.nextSyncAt - Date.parse(job.finishedAt) / 1000 - 14400) < 0.01);
+});
+
+test('最后租约释放后，尚未接收完整的在途请求阻止自动退出', async t => {
+    const { request } = require('node:http');
+    const { store } = fixture(t);
+    const runtime = store.__runtime = new RuntimeServer(store, fake());
+    await runtime.listen(0);
+    const finished = new Promise((resolve, reject) => {
+        const pending = request({ hostname: '127.0.0.1', port: runtime.port, path: '/v1/clients', method: 'POST', headers: { 'X-Reader-Key': runtime.key, 'Content-Type': 'application/json' } }, response => { response.resume(); response.on('end', resolve); });
+        pending.on('error', reject);
+        pending.write('{');
+        setTimeout(() => {
+            try { assert.equal(runtime.canExit(Date.now() + 60000), false); }
+            catch (error) { reject(error); }
+            finally { pending.end('}'); }
+        }, 20);
+    });
+    await finished;
+});
+
+test('空电脑从公开订阅定义恢复稳定账户，保留暂停间隔；重复恢复不覆盖已有共享设置', async t => {
+    const { store } = fixture(t);
+    let loggedIn = false, metadataCalls = 0;
+    const collector = { ...fake(), auth: { status: () => ({ loggedIn, state: 'idle' }), dispose() {} }, api: async (path, params) => { metadataCalls++; assert.equal(path, '/book/info'); assert.equal(params.bookId, 'MP_WXS_123'); return { title: '真实名称' }; } };
+    const runtime = store.__runtime = new RuntimeServer(store, collector);
+    await runtime.listen(0);
+    const identity = require('node:crypto').createHash('sha256').update('MP_WXS_123').digest('hex').slice(0,32);
+    const payload = { id: `account_${identity}`, displayName: '我的订阅名称', subscription: { schemaVersion: 1, bookId: 'MP_WXS_123', platformId: 'MTIz', originalName: '旧名称', subscribed: true, autoSync: false, intervalMin: 120, intervalMax: 180, accessToken: 'do-not-copy' } };
+    const call = async body => (await fetch(`http://127.0.0.1:${runtime.port}/v1/accounts/restore`, { method: 'POST', headers: { 'X-Reader-Key': runtime.key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    assert.equal((await call(payload)).error.code, 'AUTH_REQUIRED');
+    assert.equal(store.all('accounts').length, 0);
+    loggedIn = true;
+    const restored = await call(payload);
+    assert.equal(restored.data.created, true);
+    assert.equal(restored.data.account.id, payload.id);
+    assert.equal(restored.data.account.autoSync, false);
+    assert.equal(restored.data.account.intervalMax, 180);
+    assert.equal(metadataCalls, 1);
+    assert.ok(!JSON.stringify(store.all('accounts')).includes('do-not-copy'));
+    const existing = store.get('accounts', payload.id);
+    existing.displayName = '其他库修改后的名称'; existing.intervalMax = 240; existing.nextOffset = 30;
+    store.put('accounts', existing);
+    const repeat = await call(payload);
+    assert.equal(repeat.data.created, false);
+    assert.equal(repeat.data.account.intervalMax, 240);
+    assert.equal(repeat.data.account.nextOffset, 30);
+    assert.equal(repeat.data.account.displayName, '其他库修改后的名称');
+    assert.equal(metadataCalls, 1);
+    assert.equal(store.all('accounts').length, 1);
+    assert.equal(store.all('jobs').length, 0);
+    assert.equal((await call({ ...payload, id: 'wrong-account' })).error.code, 'INVALID_SUBSCRIPTION');
+    assert.equal((await call({ ...payload, subscription: { ...payload.subscription, platformId: 'wrong' } })).error.code, 'INVALID_SUBSCRIPTION');
+});
+
+test('恢复链接失效时按稳定身份恢复，链接串号与上游验证不得绕过', async t => {
+    const { store } = fixture(t);
+    const identity = require('node:crypto').createHash('sha256').update('MP_WXS_123').digest('hex').slice(0,32);
+    let mode = 'verify';
+    const collector = { ...fake(), auth: { status: () => ({ loggedIn: true, state: 'idle' }), dispose() {} }, resolve: async () => {
+        if (mode === 'verify') throw new Problem('VERIFICATION_REQUIRED', '需要验证', false, 'verify');
+        if (mode === 'mismatch') return { bookId: 'MP_WXS_456', platformId: 'NDU2' };
+        throw new Problem('UNAVAILABLE', '原文已删除');
+    }, api: async () => ({ title: '按身份确认的公众号' }) };
+    const runtime = store.__runtime = new RuntimeServer(store, collector);
+    await runtime.listen(0);
+    const payload = { id: `account_${identity}`, displayName: '显示名称', subscription: { schemaVersion: 1, bookId: 'MP_WXS_123', platformId: 'MTIz', originalName: '原名称', subscribed: false, autoSync: false, intervalMin: 60, intervalMax: 90, articleUrl: 'https://mp.weixin.qq.com/s/expired' } };
+    const call = async () => (await fetch(`http://127.0.0.1:${runtime.port}/v1/accounts/restore`, { method: 'POST', headers: { 'X-Reader-Key': runtime.key, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })).json();
+    assert.equal((await call()).error.code, 'VERIFICATION_REQUIRED');
+    mode = 'mismatch';
+    assert.equal((await call()).error.code, 'IDENTITY_MISMATCH');
+    assert.equal(store.all('accounts').length, 0);
+    mode = 'expired';
+    assert.equal((await call()).data.account.subscribed, false);
+    assert.equal(store.all('accounts').length, 1);
+});

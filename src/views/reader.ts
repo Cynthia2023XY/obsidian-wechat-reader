@@ -3,7 +3,8 @@ import type WeChatReaderPlugin from '../main';
 import type { Account, Article, Feed, Page } from '../collector/types';
 import { ArticleReaderModal } from './article-modal';
 import { AddFeedModal, FeedSettingsModal, ImportOpmlModal } from './feed-modals';
-import { AccountModal, LoginModal } from './wechat-modals';
+import { missingSubscriptionMessage, subscriptionForFeed } from '../collector/subscriptions';
+import { AccountModal, LoginModal, SubscribeModal } from './wechat-modals';
 /** 保留一期视图 ID，使原有工作区可以平滑恢复 */
 export const VIEW_TYPE = 'wechat-reader-view';
 /** 右侧简约订阅树，文章点击后交给独立阅读弹窗 */
@@ -16,8 +17,6 @@ export class ReaderView extends ItemView {
     private filter = 'all';
     /** 当前被选中的文章 */
     private selected = '';
-    /** 公众号状态轮询只在侧栏显示时执行 */
-    private timer?: ReturnType<typeof setInterval>;
     /** 生命周期标识阻止关闭后更新 DOM */
     private closed = false;
     /** 防止公众号读取未结束时重复刷新 */
@@ -42,6 +41,7 @@ export class ReaderView extends ItemView {
         // 顶部只保留刷新、添加和更多操作。
         const toolbar = this.contentEl.createDiv({ cls: 'wr-sidebar-toolbar' });
         toolbar.createEl('strong', { text: 'RSS 阅读' });
+        this.iconButton(toolbar, 'check-check', '全部标为已读', () => this.markRead(this.plugin.service.articles().map(article => article.id)));
         this.iconButton(toolbar, 'refresh-cw', '刷新订阅', () => this.refreshAll());
         this.iconButton(toolbar, 'plus', '添加订阅', () => new AddFeedModal(this.plugin, () => this.refresh()).open());
         this.iconButton(toolbar, 'more-vertical', '更多操作', event => this.menu(event));
@@ -52,25 +52,22 @@ export class ReaderView extends ItemView {
         this.textButton(footer, '＋ 添加订阅', () => new AddFeedModal(this.plugin, () => this.refresh()).open());
         this.textButton(footer, '导入 OPML', () => new ImportOpmlModal(this.plugin).open());
         this.render();
-        this.timer = setInterval(() => { if (this.containerEl.isShown() && this.plugin.data.wechatEnabled)
-            void this.refresh(); }, 5000);
     }
-    /** 关闭只停止 UI 轮询，订阅后台刷新由各自调度器负责 */
-    async onClose(): Promise<void> { this.closed = true; if (this.timer)
-        clearInterval(this.timer); }
+    /** 侧栏只接收本地变化通知，无闲置网络轮询。 */
+    async onClose(): Promise<void> { this.closed = true; }
     /** 源状态变动时更新列表，阅读弹窗不受影响 */
     render(): void {
         if (!this.list || this.closed)
             return;
         this.list.empty();
-        this.status.setText(this.plugin.service.feeds().length ? '' : '添加 RSS/Atom，或从 OPML 导入订阅。');
+        this.status.setText(this.plugin.service.lastError || (this.plugin.service.feeds().length ? '' : '添加 RSS/Atom，或从 OPML 导入订阅。'));
         // 聚合未读与收藏基于当前库的阅读状态。
         const all = this.plugin.service.articles();
         // 聚合按钮不修改具体订阅源身份。
         const aggregate = this.list.createDiv({ cls: 'wr-aggregate' });
-        for (const [id, label, icon] of [['all', '全部文章', 'files'], ['unread', '未读', 'circle'], ['starred', '收藏', 'star']]) {
+        for (const [id, label, icon] of [['all', '全部文章', 'files'], ['unread', '未读', 'circle'], ['read', '已读', 'check-check'], ['starred', '收藏', 'star']]) {
             // 计数只使用当前筛选对应的文章集合。
-            const count = all.filter(article => id === 'all' || id === 'unread' && !this.plugin.data.reading[article.id]?.read || id === 'starred' && this.plugin.data.reading[article.id]?.starred).length;
+            const count = ['all', 'read'].includes(id) ? 0 : all.filter(article => id === 'all' || id === 'unread' && !this.plugin.data.reading[article.id]?.read || id === 'starred' && this.plugin.data.reading[article.id]?.starred).length;
             // 按钮被选中后不清除各源的展开状态。
             const button = this.listButton(aggregate, label, icon, count, this.filter === id);
             button.addEventListener('click', () => { this.filter = id; this.render(); });
@@ -86,10 +83,11 @@ export class ReaderView extends ItemView {
         for (const [folder, feeds] of folders) {
             // 分组标题仅用于组织，不参与缓存键。
             const group = this.list.createDiv({ cls: 'wr-folder' });
-            group.createDiv({ cls: 'wr-folder-title', text: folder });
+            const heading = group.createDiv({ cls: 'wr-folder-title', text: folder });
+            heading.addEventListener('contextmenu', event => { event.preventDefault(); new Menu().addItem(item => item.setTitle('标记为已读').setIcon('check-check').onClick(() => this.markRead(feeds.flatMap(feed => this.plugin.service.articles(feed.id).map(article => article.id))))).showAtMouseEvent(event); });
             for (const feed of feeds) {
                 // 未读筛选即时更新，但弹窗导航队列已冻结。
-                const articles = this.plugin.service.articles(feed.id).filter(article => this.filter === 'all' || this.filter === 'unread' && !this.plugin.data.reading[article.id]?.read || this.filter === 'starred' && this.plugin.data.reading[article.id]?.starred);
+                const articles = this.plugin.service.articles(feed.id).filter(article => this.filter === 'all' || this.filter === 'unread' && !this.plugin.data.reading[article.id]?.read || this.filter === 'read' && !!this.plugin.data.reading[article.id]?.read || this.filter === 'starred' && this.plugin.data.reading[article.id]?.starred);
                 // 源未读徽标不受当前筛选限制。
                 const unread = this.plugin.service.articles(feed.id).filter(article => !this.plugin.data.reading[article.id]?.read).length;
                 // 当前目录的树形行保留紧凑排版。
@@ -146,20 +144,42 @@ export class ReaderView extends ItemView {
         button.dataset.articleId = article.id;
         button.createSpan({ cls: 'wr-unread-dot', text: read ? '' : '•' });
         button.createSpan({ cls: 'wr-row-title', text: article.title });
-        button.createSpan({ cls: 'wr-row-meta', text: `${article.publishedAt ? new Date(article.publishedAt).toLocaleDateString() : ''} · ${article.state === 'ready' ? (read ? '已读' : '未读') : '正文未就绪'}` });
+        button.createSpan({ cls: 'wr-row-meta', text: `${article.publishedAt ? new Date(article.publishedAt).toLocaleDateString() : ''} · ${read ? '已读' : '未读'}${article.state === 'ready' ? '' : ' · 正文获取失败'}` });
         button.addEventListener('click', () => { this.selected = article.id; new ArticleReaderModal(this.plugin, queue, article.id, () => { this.render(); this.list.querySelector<HTMLButtonElement>(`[data-article-id="${article.id}"]`)?.focus(); }).open(); this.render(); });
-        button.addEventListener('contextmenu', event => { event.preventDefault(); new Menu().addItem(item => item.setTitle(read ? '标为未读' : '标为已读').setIcon('check').onClick(async () => { this.plugin.data.reading[article.id] = { ...this.plugin.data.reading[article.id], read: !read }; await this.plugin.persist(); this.render(); })).showAtMouseEvent(event); });
+        button.addEventListener('contextmenu', event => { event.preventDefault(); new Menu().addItem(item => item.setTitle(read ? '标记为未读' : '标记为已读').setIcon('check').onClick(() => this.markRead([article.id], !read))).showAtMouseEvent(event); });
+    }
+    /** 一次批量保存，分页和筛选不影响目标范围。 */
+    private async markRead(ids: string[], read = true): Promise<void> {
+        try {
+            const count = await this.plugin.readingState.set(ids, read);
+            if (!count) { new Notice(read ? '没有未读文章' : '没有已读文章'); return; }
+            const token = this.plugin.readingState.undoToken;
+            const message = document.createDocumentFragment();
+            message.append(`已将 ${count} 篇文章标记为${read ? '已读' : '未读'} `);
+            const undo = document.createElement('a');
+            undo.textContent = '撤销';
+            undo.href = '#';
+            undo.addEventListener('click', event => { event.preventDefault(); void this.plugin.readingState.undo(token).then(restored => new Notice(restored ? '已撤销' : '已有新的阅读操作，撤销已失效')).catch(error => new Notice(error.message)); });
+            message.append(undo);
+            new Notice(message, 8000);
+        } catch (error) { new Notice(error instanceof Error ? error.message : '保存阅读状态失败'); }
     }
     /** 源菜单管理普通订阅和公众号各自的配置 */
     private feedMenu(feed: Feed, event: MouseEvent): void {
         // 原生 Menu 自动适配主题及键盘焦点。
         const menu = new Menu().addItem(item => item.setTitle('立即刷新').setIcon('refresh-cw').onClick(() => { void this.plugin.service.refresh(feed).catch(error => new Notice(error.message)); }));
+        menu.addItem(item => item.setTitle('标记为已读').setIcon('check-check').onClick(() => this.markRead(this.plugin.service.articles(feed.id).map(article => article.id))));
+        if (feed.kind === 'wechat' && feed.missingLocalData) {
+            menu.addItem(item => item.setTitle('补充恢复链接').setIcon('link').onClick(() => new SubscribeModal(this.plugin, () => this.refresh(), feed).open()));
+            if (subscriptionForFeed(feed)) menu.addItem(item => item.setTitle('恢复本库公众号订阅').setIcon('refresh-cw').onClick(() => this.restoreWeChat()));
+        }
         menu.addItem(item => item.setTitle('订阅设置').setIcon('settings').onClick(async () => {
             if (feed.kind === 'wechat') {
                 try {
                     const account = (await (await this.plugin.provider()).call<Page<Account>>('/v1/accounts')).items.find(account => account.id === feed.id);
                     if (account)
                         new AccountModal(this.plugin, account, () => this.refresh()).open();
+                    else new Notice(missingSubscriptionMessage(feed));
                 }
                 catch (error) {
                     new Notice(error instanceof Error ? error.message : '读取失败');
@@ -174,7 +194,7 @@ export class ReaderView extends ItemView {
                     url: string;
                 }>(`/v1/accounts/${feed.id}/rss`);
                 await navigator.clipboard.writeText(result.url);
-                new Notice('本机 RSS 订阅地址已复制，仅在采集运行时运行期间可访问');
+                new Notice(this.plugin.data.runtimeMode === 'persistent' ? '本机 RSS 订阅地址已复制' : '本机 RSS 地址已复制，仅在服务运行时可用；需要持续订阅时，请启用常驻模式。');
             }
             catch (error) {
                 new Notice(error instanceof Error ? error.message : '读取失败');
@@ -203,6 +223,7 @@ export class ReaderView extends ItemView {
         catch (error) {
             new Notice(error instanceof Error ? error.message : '连接失败');
         } }))
+            .addItem(item => item.setTitle('恢复本库公众号订阅').setIcon('refresh-cw').onClick(() => this.restoreWeChat()))
             .addItem(item => item.setTitle('重新连接公众号采集').setIcon('refresh-cw').onClick(async () => { try {
             await this.plugin.runtime.retry();
             await this.plugin.service.enableWeChat();
@@ -213,10 +234,27 @@ export class ReaderView extends ItemView {
         } }))
             .addItem(item => item.setTitle('导出 OPML').setIcon('download').onClick(() => { void this.plugin.exportOpml(); })).showAtMouseEvent(event);
     }
+    private async restoreWeChat(): Promise<void> {
+        try {
+            await this.plugin.service.enableWeChat();
+            const result = await this.plugin.service.restoreSubscriptions(true);
+            if (!result.loggedIn) { new LoginModal(this.plugin).open(); return; }
+            if (result.restored) await this.plugin.service.syncWeChat();
+            new Notice(`已恢复 ${result.restored} 个公众号订阅${result.needsLink ? `；${result.needsLink} 个旧订阅需右键补充恢复链接` : ''}${result.failed ? `；${result.failed} 个恢复失败，请稍后重试` : ''}`);
+        } catch (error) { new Notice(error instanceof Error ? error.message : '恢复订阅失败'); }
+    }
     /** 用户触发全部刷新时逐源执行，错误保留到对应源 */
-    private async refreshAll(): Promise<void> { for (const feed of this.plugin.service.feeds().filter(feed => feed.enabled)) {
-        await this.plugin.service.refresh(feed).catch(error => new Notice(`${feed.title}：${error.message}`));
-    } await this.refresh(); }
+    private async refreshAll(): Promise<void> {
+        const feeds = this.plugin.service.feeds().filter(feed => feed.enabled);
+        for (const feed of feeds.filter(feed => feed.kind !== 'wechat')) {
+            await this.plugin.service.refresh(feed).catch(error => new Notice(`${feed.title}：${error.message}`));
+        }
+        const wechat = feeds.filter(feed => feed.kind === 'wechat' && !feed.missingLocalData);
+        if (wechat.length) await this.plugin.service.syncWeChat(async provider => {
+            for (const feed of wechat) await provider.call(`/v1/accounts/${feed.id}/sync`, 'POST', {});
+        });
+        this.render();
+    }
     /** 图标按钮提供可读名称，兼容鼠标与屏幕阅读器 */
     private iconButton(parent: HTMLElement, icon: string, label: string, action: (event: MouseEvent) => unknown): void { const button = parent.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': label, title: label } }); setIcon(button, icon); button.addEventListener('click', event => { try {
         const result = action(event);

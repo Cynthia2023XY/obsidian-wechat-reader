@@ -1,9 +1,13 @@
 import { Plugin, FileSystemAdapter, Notice, PluginSettingTab, Setting, WorkspaceLeaf } from 'obsidian';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { ReadingStore } from './reading/state';
 import { RuntimeManager } from './runtime/manager';
 import { ReaderView, VIEW_TYPE } from './views/reader';
 import { retainReaderLeaf } from './views/layout';
 import { archiveRoot } from './archive/archive';
+import { appendSubscriptionSettings, renderSubscriptionLinks } from './views/subscription-settings';
+import { exportSubscriptionConfiguration } from './feeds/configuration';
 import { FeedService } from './feeds/service';
 import type { CollectorProvider, ReaderData } from './collector/types';
 /** 通用 RSS 阅读插件，普通订阅与公众号共享原生阅读交互 */
@@ -12,6 +16,7 @@ export default class WeChatReaderPlugin extends Plugin {
     data: ReaderData = { archiveFolder: 'RSS阅读', reading: {}, feeds: [], wechatEnabled: false, wechatFeeds: [] };
     /** 公众号专用运行时按需启动，普通 RSS 不依赖此程序 */
     runtime!: RuntimeManager;
+    readingState!: ReadingStore;
     /** 来源无关的阅读和订阅服务 */
     service!: FeedService;
     /** 当前插件私有目录，用于 RSS 分片缓存和附属程序定位 */
@@ -35,16 +40,24 @@ export default class WeChatReaderPlugin extends Plugin {
         }
         this.directory = join(this.app.vault.adapter.getBasePath(), this.manifest.dir || `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
         this.runtime = new RuntimeManager(this.directory, message => new Notice(message));
-        this.service = new FeedService(this.data, this.directory, () => this.persist(), () => this.runtime.connect());
+        this.service = new FeedService(this.data, this.directory, () => this.persist(), () => this.runtime.connect(), { root: join(homedir(), 'Library/Application Support/Obsidian WeChat Reader'), session: action => this.runtime.session(() => action()) });
+        const settings = new ReaderSettings(this);
         this.service.onChange = () => { for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))
-            (leaf.view as ReaderView).render?.(); };
+            (leaf.view as ReaderView).render?.(); settings.refreshLinks(); };
+        this.readingState = new ReadingStore(this.data, () => this.persist(), () => this.service.onChange());
+        this.registerDomEvent(window, 'focus', () => { void this.service.resume(); });
+        this.registerDomEvent(window, 'online', () => { void this.service.resume(); });
+        this.registerDomEvent(document, 'visibilitychange', () => { if (!document.hidden) void this.service.resume(); });
         this.registerView(VIEW_TYPE, leaf => new ReaderView(leaf, this));
         this.registerEvent(this.app.workspace.on('layout-change', () => this.reconcileReader()));
         this.addRibbonIcon('rss', 'RSS 阅读', () => { void this.openReader(); });
         this.addCommand({ id: 'open-reader', name: '打开 RSS 阅读侧栏', callback: () => { void this.openReader(); } });
-        this.addSettingTab(new ReaderSettings(this));
+        this.addSettingTab(settings);
         // 恢复数据时只连接当前库明确启用的公众号能力。
-        void this.service.load().then(() => this.service.onChange()).catch(error => new Notice(error.message));
+        void this.service.load().then(async () => {
+            if (this.data.wechatEnabled && this.data.runtimeMode === 'persistent') await this.runtime.setPersistent(true);
+            this.service.onChange();
+        }).catch(error => new Notice(error.message));
         this.app.workspace.onLayoutReady(() => { void this.openReader().catch(error => new Notice(error.message)); });
     }
     /** 兼容公众号设置和登录窗口的运行接口 */
@@ -105,11 +118,21 @@ export default class WeChatReaderPlugin extends Plugin {
         await this.app.vault.create(`RSS订阅-${Date.now()}.opml`, `<?xml version="1.0" encoding="UTF-8"?><opml version="2.0"><head><title>RSS 阅读订阅</title></head><body>${body}</body></opml>`);
         new Notice('OPML 已保存到笔记库');
     }
+    /** 两类订阅使用统一的可迁移配置文件；仅在用户点击导出时落盘。 */
+    async exportSubscriptionConfiguration(): Promise<void> {
+        const content = exportSubscriptionConfiguration(this.service.feeds());
+        const path = `RSS订阅配置-${Date.now()}.json`;
+        await this.app.vault.create(path, content);
+        new Notice(`订阅配置已保存到笔记库根目录：${path}`);
+    }
     /** 关闭订阅计时器并释放当前库的公众号租约 */
     onunload(): void { this.service?.dispose(); void this.runtime?.dispose(); }
 }
 /** 原生设置与弹窗均使用 Obsidian 控件自动跟随深浅主题 */
 class ReaderSettings extends PluginSettingTab {
+    private links?: HTMLElement;
+    refreshLinks(): void { if (this.links?.isConnected) renderSubscriptionLinks(this.links, this.plugin.service.feeds()); }
+    hide(): void { this.links = undefined; super.hide(); }
     /** 当前插件持有设置及订阅服务 */
     constructor(private plugin: WeChatReaderPlugin) { super(plugin.app, plugin); }
     /** 仅展示对用户有意义的归档和公众号能力配置 */
@@ -126,6 +149,7 @@ class ReaderSettings extends PluginSettingTab {
         new Setting(this.containerEl).setName('启用微信公众号').setDesc('普通 RSS 不需要开启。公众号能力使用独立 TS 运行时。').addToggle(toggle => toggle.setValue(this.plugin.data.wechatEnabled).onChange(async (value) => { if (value) {
             try {
                 await this.plugin.service.enableWeChat();
+                await this.plugin.runtime.setPersistent(this.plugin.data.runtimeMode === 'persistent');
             }
             catch (error) {
                 new Notice(error instanceof Error ? error.message : '连接失败');
@@ -138,8 +162,22 @@ class ReaderSettings extends PluginSettingTab {
             this.plugin.runtime = new RuntimeManager((this.plugin as unknown as {
                 directory: string;
             }).directory, message => new Notice(message));
-        } this.plugin.service.onChange(); }));
+        } this.plugin.service.schedule(); this.plugin.service.onChange(); }));
+        new Setting(this.containerEl).setName('公众号服务运行方式').setDesc('省电：到期采集时启动，完成后退出；Obsidian 关闭或电脑休眠时不采集。常驻：供其他阅读器持续访问本机 RSS 地址。').addDropdown(dropdown => dropdown.addOption('power-save', '省电模式（默认）').addOption('persistent', '常驻模式').setValue(this.plugin.data.runtimeMode || 'power-save').onChange(async value => {
+            const previous = this.plugin.data.runtimeMode;
+            try {
+                this.plugin.data.runtimeMode = value as 'power-save' | 'persistent';
+                await this.plugin.runtime.setPersistent(this.plugin.data.wechatEnabled && value === 'persistent');
+                await this.plugin.persist();
+            } catch (error) {
+                this.plugin.data.runtimeMode = previous;
+                await this.plugin.runtime.setPersistent(this.plugin.data.wechatEnabled && previous === 'persistent').catch(() => undefined);
+                new Notice(error instanceof Error ? error.message : '保存运行方式失败');
+                this.display();
+            }
+        }));
         new Setting(this.containerEl).setName('打开阅读侧栏').addButton(button => button.setButtonText('打开右侧 RSS 栏').onClick(() => this.plugin.openReader()));
-        this.containerEl.createEl('p', { text: '← / → 切换文章，↑ / ↓ 滚动正文，Esc 关闭弹窗。正文显示成功后自动已读。' });
+        this.links = appendSubscriptionSettings(this.containerEl, this.plugin, () => this.refreshLinks());
+        this.containerEl.createEl('p', { text: '← / → 切换文章，↑ / ↓ 滚动正文，Esc 关闭弹窗。打开正文或失败提示后自动已读。' });
     }
 }

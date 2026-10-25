@@ -26,3 +26,20 @@ export class Modal {
 export class Notice {/** 保存提示文本 */ constructor(public message:string) {}}
 /** 本组测试未使用设置控件，保留导出供模块加载 */
 export class Setting {}
+/** 订阅面板使用的原生视图与菜单替身。 */
+export class ItemView {
+  contentEl = document.createElement('div');
+  containerEl = this.contentEl;
+  constructor(public leaf: unknown) {}
+}
+export function setIcon(element: HTMLElement, name: string): void { element.dataset.icon = name; }
+export class Menu {
+  static latest: Menu;
+  items: Array<{ title: string; click: () => unknown }> = [];
+  addItem(build: (item: any) => unknown): this {
+    const value = { title: '', click: () => {} };
+    const item = { setTitle: (title: string) => { value.title = title; return item; }, setIcon: () => item, onClick: (click: () => unknown) => { value.click = click; return item; } };
+    build(item); this.items.push(value); return this;
+  }
+  showAtMouseEvent(): void { Menu.latest = this; }
+}

@@ -112,8 +112,16 @@ export class ArticleReaderModal extends Modal {
     private async show(): Promise<void> {
         // 快速切换时仅最新请求可以更新阅读状态。
         const sequence = ++this.sequence;
+        const id = this.queue[this.index];
+        const revision = this.plugin.readingState.revision(id);
+        const markRead = async () => {
+            if (this.closed || sequence !== this.sequence) return;
+            try { await this.plugin.readingState.set([id], true, false, revision); }
+            catch { new Notice('保存已读状态失败，请重试'); }
+        };
         this.release();
         this.article = undefined;
+        this.source.setText('正在读取…');
         this.body.empty();
         this.body.scrollTop = 0;
         this.body.createEl('p', { text: '正在读取正文…', cls: 'wr-placeholder' });
@@ -134,7 +142,9 @@ export class ArticleReaderModal extends Modal {
             this.body.createEl('h1', { text: article.title });
             this.body.createDiv({ cls: 'wr-article-meta', text: `${article.publishedAt ? new Date(article.publishedAt).toLocaleString() : '发布时间未知'} · ${article.contentKind === 'summary' ? '该订阅仅提供摘要' : '正文'}${article.author ? ` · ${article.author}` : ''}` });
             if (article.state !== 'ready' || !article.html) {
-                this.body.createEl('p', { text: article.error?.message || '正文尚未就绪，请刷新或查看原文', cls: 'wr-error' });
+                this.body.createEl('p', { text: (article.error?.message || '正文尚未就绪，请刷新或查看原文').replace('未计入阅读成功', '正文下载未成功'), cls: 'wr-error' });
+                this.errorActions(id, article.url);
+                await markRead();
                 return;
             }
             // HTML 先清理，所有图片移除远端 src 后再挂载。
@@ -160,9 +170,7 @@ export class ArticleReaderModal extends Modal {
             // 清理后的正文节点采用与主题一致的阅读样式。
             const content = this.body.createDiv({ cls: 'wr-content' });
             content.append(...Array.from(document.body.childNodes));
-            this.plugin.data.reading[article.id] = { ...this.plugin.data.reading[article.id], read: true };
-            await this.plugin.persist();
-            this.plugin.service.onChange();
+            await markRead();
             if (this.closed || sequence !== this.sequence)
                 return;
             for (const button of this.actions)
@@ -189,9 +197,24 @@ export class ArticleReaderModal extends Modal {
         catch (error) {
             if (!this.closed && sequence === this.sequence) {
                 this.body.empty();
+                const cached = this.plugin.service.articles().find(item => item.id === id);
+                this.article = cached;
+                this.source.setText(cached?.title || '文章读取失败');
                 this.body.createEl('p', { cls: 'wr-error', text: error instanceof Error ? error.message : '文章读取失败' });
+                this.errorActions(id, cached?.url);
+                await markRead();
             }
         }
+    }
+    /** 错误已呈现也可处理已读，重试仍走采集队列。 */
+    private errorActions(id: string, url?: string): void {
+        this.body.createEl('p', { cls: 'wr-placeholder', text: '可打开原文查看，或稍后重试获取正文。' });
+        const actions = this.body.createDiv({ cls: 'wr-error-actions' });
+        if (url) this.button(actions, '打开原文', () => window.open(url, '_blank', 'noopener'), 'wr-open-original');
+        this.button(actions, '重试获取正文', async () => {
+            await this.plugin.service.retryArticle(id);
+            if (!this.closed && this.queue[this.index] === id) await this.show();
+        }, 'wr-retry');
     }
     /** 将文章归档，保存完成不切走当前阅读 */
     private async saveArticle(copy = false): Promise<void> {
@@ -205,7 +228,9 @@ export class ArticleReaderModal extends Modal {
             new ConfirmModal(this.app, '正文有更新。另存新副本会保留原笔记及其附件。', () => this.saveArticle(true)).open();
             return;
         }
-        this.plugin.data.reading[article.id] = await archiveArticle(this.app, this.plugin.service.contentProvider(), article, this.plugin.service.feeds().find(feed => feed.id === article.accountId)?.title || 'RSS', this.plugin.data.archiveFolder, copy ? { ...state, archive: undefined } : state, false);
+        const archived = await archiveArticle(this.app, this.plugin.service.contentProvider(), article, this.plugin.service.feeds().find(feed => feed.id === article.accountId)?.title || 'RSS', this.plugin.data.archiveFolder, copy ? { ...state, archive: undefined } : state, false);
+        // 归档耗时期间的手动已读/未读与收藏变更优先。
+        this.plugin.data.reading[article.id] = { ...this.plugin.data.reading[article.id], archive: archived.archive, version: archived.version };
         await this.plugin.persist();
         new Notice(state.archive && !copy ? '已保存过该文章，原笔记保持不变' : 'Markdown 与本地图片已保存');
     }
