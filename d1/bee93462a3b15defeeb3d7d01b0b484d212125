@@ -1,0 +1,23 @@
+runtime-ts/collector.ts
+  s_e7b5babdcd5180::t_e6298947d599ed 23-37,118-119,172-173,179
+VALIDATION.md
+  s_e7b5babdcd5180::t_eacc5232462690 21-29
+tests/runtime-integration.test.cjs
+  s_e7b5babdcd5180::t_24bc38d0f25895 282-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "d1bee93462a3b15defeeb3d7d01b0b484d212125",
+  "prompts": {},
+  "sessions": {
+    "s_e7b5babdcd5180": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16794-4a49-7d22-a434-dfb8a956b99c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "dingxinyi.2 <dingxinyi.2@jd.com>"
+    }
+  }
+}
