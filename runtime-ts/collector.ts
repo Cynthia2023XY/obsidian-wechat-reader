@@ -20,6 +20,21 @@ const TAGS = new Set('p br div span section article h1 h2 h3 h4 h5 h6 strong b e
 const BROWSERS = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'];
 /** 微信图文请求使用的普通移动浏览器画像 */
 const MOBILE_UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43';
+/** 优先使用上游原文地址，仅生成微信短链时还原微信读书的下划线编码 */
+function articleUrl(info: Upstream, review: string): string {
+    if (typeof info.doc_url === 'string' && info.doc_url.trim()) {
+        try { return canonicalUrl(info.doc_url); }
+        catch { /* 无效原文入口不能阻断稳定短链兜底。 */ }
+    }
+    // 原始 reviewId 仍用于上游请求和身份别名，不在此修改。
+    const suffix = review.match(/^MP_WXS_\d+_([A-Za-z0-9_~\-]+)$/)?.[1];
+    // originalId 与 reviewId 的文章后缀都可能以波浪线表示下划线。
+    for (const candidate of [info.originalId, suffix]) {
+        if (typeof candidate === 'string' && /^[A-Za-z0-9_~\-]+$/.test(candidate))
+            return canonicalUrl(`https://mp.weixin.qq.com/s/${candidate.replace(/~/g, '_')}`);
+    }
+    return '';
+}
 /** 检测上游验证页，不能把 HTTP 200 当作正文就绪 */
 export function riskPage(value: string): boolean { return ['环境异常', '访问过于频繁', '验证后继续', 'wappoc_appmsgcaptcha', 'TCaptcha', '请完成下方验证'].some(marker => value.includes(marker)); }
 /** 由固定官方接口完成登录后的唯一 TS 公众号采集适配器 */
@@ -100,8 +115,8 @@ export class Collector {
             review = item?.reviewId || '';
             book = data.bookId || item?.bookId || '';
             if (!book) {
-                // 从稳定标识中提取的公众号数字身份。
-                const match = review.match(/^MP_WXS_(\d+)_[A-Za-z0-9_-]+$/);
+                // 只提取固定公众号前缀，文章后缀可以使用微信读书特有编码。
+                const match = review.match(/^MP_WXS_(\d+)_/);
                 if (match)
                     book = `MP_WXS_${match[1]}`;
             }
@@ -154,16 +169,14 @@ export class Collector {
         for (const row of rows) {
             // reviewId 中的短链可以直接定位原文。
             const info = row.mpInfo || {}, review = row.reviewId || '';
-            // 不以标题去重或构造 URL。
-            const short = review.match(/^MP_WXS_\d+_([A-Za-z0-9_-]+)$/)?.[1];
-            // 原文地址可能需要单条元数据解析。
-            let url = short ? `https://mp.weixin.qq.com/s/${short}` : info.doc_url || '';
+            // 原文地址优先，短链兜底不以标题定位，且不能直接使用编码后的波浪线。
+            let url = articleUrl(info, review);
             if (!url && review) {
                 // 单篇文章元信息，用于补全标题、链接和发布时间。
                 const detail = await this.api('/review/single', { reviewId: review });
                 // 单篇文章的原文定位信息。
                 const metadata = (detail.review || detail).mpInfo || {};
-                url = metadata.originalId ? `https://mp.weixin.qq.com/s/${metadata.originalId}` : metadata.doc_url || '';
+                url = articleUrl(metadata, review);
             }
             if (!url)
                 throw new Problem('ARTICLE_URL_MISSING', '文章缺少原文链接，本轮未计为成功', true);

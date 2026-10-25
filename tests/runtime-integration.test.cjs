@@ -279,3 +279,75 @@ test('并发续期仅换票一次，注销期间返回的换票不能恢复授�
     assert.equal(calls, 1);
     assert.deepEqual(auth.credentials(), []);
 });
+test('四篇真实短链格式均能提取身份，带波浪线的 reviewId 原样用于元信息请求', async t => {
+    // 本用例仅使用临时目录和上游夹具，不读取真实授权。
+    const { root } = fixture(t), collector = new Collector(root);
+    // 成功与失败样例覆盖同一公众号及含下划线的两个不同公众号。
+    const cases = [
+        ['g0b31VzIE8SNXjvNn5ctcg', '3281168092', 'g0b31VzIE8SNXjvNn5ctcg'],
+        ['IoUXX72z0ezoJZA45Qavmg', '3281168092', 'IoUXX72z0ezoJZA45Qavmg'],
+        ['JE0Un50JkY5_OLUIYV-nbg', '3090000302', 'JE0Un50JkY5~OLUIYV-nbg'],
+        ['lW1SCz_WjgOnZBr9AV2hoA', '3902604720', 'lW1SCz~WjgOnZBr9AV2hoA']
+    ];
+    for (const [short, numeric, encoded] of cases) {
+        // 真实返回格式中的编码后缀只属于微信读书身份，不属于原文 URL。
+        const url = `https://mp.weixin.qq.com/s/${short}`, reviewId = `MP_WXS_${numeric}_${encoded}`;
+        // 记录身份提取后的请求参数，防止修复时误改稳定上游标识。
+        const calls = [];
+        collector.api = async (path, params) => {
+            calls.push({ path, params });
+            if (path === '/mp/getreviewid') return { reviewIds: [{ url, reviewId }] };
+            if (path === '/book/info') return { title: '夹具公众号' };
+            return { review: { mpInfo: { title: '夹具文章' }, createTime: 1720000000 } };
+        };
+        // 订阅种子保留用户原始短链，且不因标题相同产生错误身份。
+        const resolved = await collector.resolve(url);
+        assert.equal(resolved.bookId, `MP_WXS_${numeric}`);
+        assert.equal(resolved.seedArticle.url, url);
+        assert.equal(resolved.seedArticle.reviewId, reviewId);
+        assert.deepEqual(calls.find(call => call.path === '/review/single').params, { reviewId });
+        assert.deepEqual(calls.find(call => call.path === '/book/info').params, { bookId: `MP_WXS_${numeric}` });
+    }
+});
+test('列表优先采用合法 doc_url，短链兜底正确还原下划线并保留 reviewId', async t => {
+    // 源设置只用于分页接口，不创建真实订阅。
+    const { root } = fixture(t), collector = new Collector(root);
+    // 长链的定位参数必须保留，非法协议不可作为原文返回。
+    const long = 'https://mp.weixin.qq.com/s?__biz=MzA5MDAwMDMwMg==&mid=1&idx=1&sn=test';
+    // 第二条模拟有效元信息，第三条验证无效原文入口可安全退回短链。
+    const rows = [
+        { reviewId: 'MP_WXS_3090000302_JE0Un50JkY5~OLUIYV-nbg', mpInfo: {} },
+        { reviewId: 'MP_WXS_3902604720_lW1SCz~WjgOnZBr9AV2hoA', mpInfo: { doc_url: long } },
+        { reviewId: 'MP_WXS_3902604720_lW1SCz~WjgOnZBr9AV2hoA', mpInfo: { doc_url: 'javascript:alert(1)' } }
+    ];
+    collector.api = async path => { assert.equal(path, '/mp/chapters'); return { chapters: rows, hasMore: false }; };
+    // 列表可直接解析时，不应额外逐条请求详情。
+    const page = await collector.page({ bookId: 'MP_WXS_3090000302' }, 0, 10);
+    assert.equal(page.items[0].url, 'https://mp.weixin.qq.com/s/JE0Un50JkY5_OLUIYV-nbg');
+    assert.equal(page.items[1].url, canonicalUrl(long));
+    assert.equal(page.items[2].url, 'https://mp.weixin.qq.com/s/lW1SCz_WjgOnZBr9AV2hoA');
+    assert.deepEqual(page.items.map(item => item.reviewId), rows.map(row => row.reviewId));
+});
+test('单篇详情中的 originalId 也还原波浪线，有 doc_url 时优先使用原文地址', async t => {
+    // 不能从列表 reviewId 直接反推短链时进入详情兜底。
+    const { root } = fixture(t), collector = new Collector(root);
+    for (const doc of [undefined, 'https://mp.weixin.qq.com/s?__biz=MzkwMjYwNDcyMA==&mid=2&idx=1']) {
+        collector.api = async (path, params) => {
+            if (path === '/mp/chapters') return { chapters: [{ reviewId: 'opaque-review', mpInfo: {} }], hasMore: false };
+            assert.deepEqual(params, { reviewId: 'opaque-review' });
+            return { review: { mpInfo: { originalId: 'lW1SCz~WjgOnZBr9AV2hoA', doc_url: doc } } };
+        };
+        // 两种详情响应均不能返回含波浪线的微信短链。
+        const page = await collector.page({ bookId: 'MP_WXS_3902604720' }, 0, 10);
+        assert.equal(page.items[0].url, doc ? canonicalUrl(doc) : 'https://mp.weixin.qq.com/s/lW1SCz_WjgOnZBr9AV2hoA');
+        assert.equal(page.items[0].reviewId, 'opaque-review');
+    }
+});
+test('上游没有返回有效身份时仍明确失败，不伪造公众号', async t => {
+    // 无结果、非数字公众号和缺少分隔符均不应被宽松前缀误接受。
+    const { root } = fixture(t), collector = new Collector(root);
+    for (const reviewId of ['', 'MP_WXS_invalid_article', 'MP_WXS_3090000302']) {
+        collector.api = async () => ({ reviewIds: [{ url: 'https://mp.weixin.qq.com/s/test', reviewId }] });
+        await assert.rejects(collector.resolve('https://mp.weixin.qq.com/s/test'), error => error.code === 'IDENTITY_REQUIRED');
+    }
+});
