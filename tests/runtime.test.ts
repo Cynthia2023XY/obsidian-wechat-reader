@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as obsidian from 'obsidian';
 import { RuntimeManager } from '../src/runtime/manager';
@@ -8,9 +8,30 @@ vi.mock('node:fs/promises',()=>{
   const mock={readFile:vi.fn(),access:vi.fn(),stat:vi.fn()};
   return {...mock,default:mock};
 });
+/** 在 Linux CI 上也明确模拟附属程序支持的平台，不依赖执行机系统 */
+const originalPlatform = process.platform;
+/** 生命周期测试中的架构检查使用与发行包相同的 Apple Silicon */
+const originalArch = process.arch;
 /** 运行管理必须有界重试，并复用同用户已有实例 */
 describe('附属程序生命周期',()=>{
-  afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();});
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    Object.defineProperty(process, 'arch', { value: 'arm64', configurable: true });
+  });
+  afterEach(()=>{
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    Object.defineProperty(process, 'arch', { value: originalArch, configurable: true });
+    vi.useRealTimers();vi.restoreAllMocks();
+  });
+  it('不支持的平台在访问附属程序文件前明确拒绝', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    // 不支持的平台不得尝试读取或启动本机采集程序。
+    const runtime = new RuntimeManager('/fixture/plugin', vi.fn());
+    vi.mocked(fs.access).mockClear();
+    await expect(runtime.connect()).rejects.toThrow('仅支持 macOS Apple Silicon');
+    expect(fs.access).not.toHaveBeenCalled();
+    await runtime.dispose();
+  });
   it('连续失败停止自动拉起，明确重试后才重新尝试',async()=>{
     vi.useFakeTimers();
     vi.mocked(fs.stat).mockRejectedValue(new Error('无实例'));
