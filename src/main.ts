@@ -1,4 +1,4 @@
-import { Plugin, FileSystemAdapter, Notice, PluginSettingTab, Setting, WorkspaceLeaf } from 'obsidian';
+import { Plugin, FileSystemAdapter, Notice, PluginSettingTab, Setting, WorkspaceLeaf, type SettingDefinitionItem } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readerWidth, DEFAULT_READER_WIDTH, MIN_READER_WIDTH, MAX_READER_WIDTH } from './views/reader-preferences';
@@ -33,7 +33,7 @@ export default class WeChatReaderPlugin extends Plugin {
     /** 注册侧栏与服务；沿用 manifest ID 完成一期设置迁移 */
     async onload(): Promise<void> {
         // 一期 data.json 中只有阅读偏好，新增配置保留默认值。
-        const saved = await this.loadData();
+        const saved = await this.loadData() as Partial<ReaderData> | null;
         this.data = { ...this.data, ...saved, reading: saved?.reading || {}, feeds: saved?.feeds || [], wechatFeeds: saved?.wechatFeeds || [], wechatEnabled: saved?.wechatEnabled ?? (!!saved && !Array.isArray(saved.feeds)) };
         this.data.readerModalWidth = readerWidth(this.data.readerModalWidth);
         if (!(this.app.vault.adapter instanceof FileSystemAdapter)) {
@@ -59,13 +59,18 @@ export default class WeChatReaderPlugin extends Plugin {
         void this.service.load().then(async () => {
             if (this.data.wechatEnabled && this.data.runtimeMode === 'persistent') await this.runtime.setPersistent(true);
             this.service.onChange();
-        }).catch(error => new Notice(error.message));
-        this.app.workspace.onLayoutReady(() => { void this.openReader().catch(error => new Notice(error.message)); });
+        }).catch(error => new Notice(error instanceof Error ? error.message : '操作失败'));
+        this.app.workspace.onLayoutReady(() => { void this.openReader().catch(error => new Notice(error instanceof Error ? error.message : '操作失败')); });
     }
     /** 兼容公众号设置和登录窗口的运行接口 */
     async provider(): Promise<CollectorProvider> { return this.runtime.connect(); }
     /** 保留所有阅读状态，配置不保存运行端口或管理访问密钥 */
-    async persist(): Promise<void> { const snapshot = JSON.parse(JSON.stringify(this.data)); this.saving = this.saving.catch(() => undefined).then(() => this.saveData(snapshot)); await this.saving; }
+    async persist(): Promise<void> {
+        // 保存与当前界面脱离的阅读配置快照。
+        const snapshot: ReaderData = structuredClone(this.data);
+        this.saving = this.saving.catch(() => undefined).then(() => this.saveData(snapshot));
+        await this.saving;
+    }
     /** 默认在右侧栏打开，升级时将一期中心阅读页迁移一次 */
     async openReader(): Promise<void> { if (!this.opening)
         this.opening = this.openSidebar().finally(() => { this.opening = undefined; }); await this.opening; }
@@ -137,21 +142,24 @@ class ReaderSettings extends PluginSettingTab {
     hide(): void { this.links = undefined; super.hide(); }
     /** 当前插件持有设置及订阅服务 */
     constructor(private plugin: WeChatReaderPlugin) { super(plugin.app, plugin); }
+    /** 让新版设置搜索索引归档、阅读及公众号选项 */
+    getSettingDefinitions(): SettingDefinitionItem[] {
+        return [{ name: 'RSS 阅读', aliases: ['Markdown 归档目录', '阅读弹窗宽度', '启用微信公众号', '公众号服务运行方式', '订阅配置'], render: setting => { this.renderSettings(setting.settingEl); } }];
+    }
     /** 仅展示对用户有意义的归档和公众号能力配置 */
-    display(): void {
-        this.containerEl.empty();
-        this.containerEl.createEl('h2', { text: 'RSS 阅读' });
-        this.containerEl.createEl('p', { text: '订阅列表默认在右侧栏，文章在弹窗中阅读。界面跟随 Obsidian 深色或浅色主题。' });
-        new Setting(this.containerEl).setName('Markdown 归档目录').setDesc('相对当前笔记库，图片与正文离线保存。').addText(text => text.setValue(this.plugin.data.archiveFolder).onChange(async (value) => { try {
-            archiveRoot(value);
+    private renderSettings(container: HTMLElement): void {
+        container.empty();
+        new Setting(container).setName('RSS 阅读').setHeading();
+        container.createEl('p', { text: '订阅列表默认在右侧栏，文章在弹窗中阅读。界面跟随 Obsidian 深色或浅色主题。' });
+        new Setting(container).setName('Markdown 归档目录').setDesc('相对当前笔记库，图片与正文离线保存。').addText(text => text.setValue(this.plugin.data.archiveFolder).onChange(async (value) => { try {
+            archiveRoot(value, this.app.vault.configDir);
             this.plugin.data.archiveFolder = value;
             await this.plugin.persist();
         }
         catch { /* 输入过程保持最近有效位置。 */ } }));
-        new Setting(this.containerEl).setName('阅读弹窗宽度').setDesc('默认 720 像素，范围 480～1000 像素。下次打开阅读弹窗时生效；小窗口会自动限制在可视范围内。').addSlider(slider => slider
+        new Setting(container).setName('阅读弹窗宽度').setDesc('默认 720 像素，范围 480～1000 像素。下次打开阅读弹窗时生效；小窗口会自动限制在可视范围内。').addSlider(slider => slider
             .setLimits(MIN_READER_WIDTH, MAX_READER_WIDTH, 20)
             .setValue(readerWidth(this.plugin.data.readerModalWidth))
-            .setDynamicTooltip()
             .onChange(async value => {
                 const previous = this.plugin.data.readerModalWidth;
                 const width = readerWidth(value);
@@ -162,7 +170,7 @@ class ReaderSettings extends PluginSettingTab {
                     new Notice('保存弹窗宽度失败，请重试');
                 }
             }));
-        new Setting(this.containerEl).setName('启用微信公众号').setDesc('普通 RSS 不需要开启。公众号能力使用独立 TS 运行时。').addToggle(toggle => toggle.setValue(this.plugin.data.wechatEnabled).onChange(async (value) => { if (value) {
+        new Setting(container).setName('启用微信公众号').setDesc('普通 RSS 不需要开启。公众号能力使用独立 TS 运行时。').addToggle(toggle => toggle.setValue(this.plugin.data.wechatEnabled).onChange(async (value) => { if (value) {
             try {
                 await this.plugin.service.enableWeChat();
                 await this.plugin.runtime.setPersistent(this.plugin.data.runtimeMode === 'persistent');
@@ -179,7 +187,7 @@ class ReaderSettings extends PluginSettingTab {
                 directory: string;
             }).directory, message => new Notice(message));
         } this.plugin.service.schedule(); this.plugin.service.onChange(); }));
-        new Setting(this.containerEl).setName('公众号服务运行方式').setDesc('省电：到期采集时启动，完成后退出；Obsidian 关闭或电脑休眠时不采集。常驻：供其他阅读器持续访问本机 RSS 地址。').addDropdown(dropdown => dropdown.addOption('power-save', '省电模式（默认）').addOption('persistent', '常驻模式').setValue(this.plugin.data.runtimeMode || 'power-save').onChange(async value => {
+        new Setting(container).setName('公众号服务运行方式').setDesc('省电：到期采集时启动，完成后退出；Obsidian 关闭或电脑休眠时不采集。常驻：供其他阅读器持续访问本机 RSS 地址。').addDropdown(dropdown => dropdown.addOption('power-save', '省电模式（默认）').addOption('persistent', '常驻模式').setValue(this.plugin.data.runtimeMode || 'power-save').onChange(async value => {
             const previous = this.plugin.data.runtimeMode;
             try {
                 this.plugin.data.runtimeMode = value as 'power-save' | 'persistent';
@@ -189,11 +197,11 @@ class ReaderSettings extends PluginSettingTab {
                 this.plugin.data.runtimeMode = previous;
                 await this.plugin.runtime.setPersistent(this.plugin.data.wechatEnabled && previous === 'persistent').catch(() => undefined);
                 new Notice(error instanceof Error ? error.message : '保存运行方式失败');
-                this.display();
+                this.update();
             }
         }));
-        new Setting(this.containerEl).setName('打开阅读侧栏').addButton(button => button.setButtonText('打开右侧 RSS 栏').onClick(() => this.plugin.openReader()));
-        this.links = appendSubscriptionSettings(this.containerEl, this.plugin, () => this.refreshLinks());
-        this.containerEl.createEl('p', { text: '← / → 切换文章，↑ / ↓ 滚动正文，Esc 关闭弹窗。打开正文或失败提示后自动已读。' });
+        new Setting(container).setName('打开阅读侧栏').addButton(button => button.setButtonText('打开右侧 RSS 栏').onClick(() => this.plugin.openReader()));
+        this.links = appendSubscriptionSettings(container, this.plugin, () => this.refreshLinks());
+        container.createEl('p', { text: '← / → 切换文章，↑ / ↓ 滚动正文，Esc 关闭弹窗。打开正文或失败提示后自动已读。' });
     }
 }

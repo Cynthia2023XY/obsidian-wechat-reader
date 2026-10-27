@@ -6,8 +6,11 @@ import type { Article } from '../src/collector/types';
 /** 归档安全与用户编辑保护是跨设备离线阅读的关键约束 */
 describe('离线归档与正文安全',()=>{
   it('拒绝绝对路径、上级目录与插件配置目录',()=>{
-    for (const value of ['/tmp/escape','../escape','notes/../escape','C:\\escape','.obsidian/plugins','']) expect(()=>archiveRoot(value)).toThrow();
-    expect(archiveRoot('公众号阅读/科技')).toBe('公众号阅读/科技');
+    for (const value of ['/tmp/escape','../escape','notes/../escape','C:\\escape','配置目录/plugins','']) expect(()=>archiveRoot(value, '配置目录')).toThrow();
+    expect(archiveRoot('公众号阅读/科技', '配置目录')).toBe('公众号阅读/科技');
+    expect(() => archiveRoot('配置目录', '配置目录')).toThrow();
+    expect(() => archiveRoot('Config/plugins', 'config')).toThrow();
+    expect(archiveRoot('config-notes', 'config')).toBe('config-notes');
   });
   it('文件名不能注入路径或 frontmatter 控制字符',()=>{
     expect(safeName('../坏:标题\n[注入]')).not.toMatch(/[\/:\n\[\]]/);
@@ -40,7 +43,7 @@ describe('离线归档与正文安全',()=>{
     // 使用真实 TFile 类型识别现有归档行为。
     const create=vi.fn(async(path:string,text:string)=>{const file=new TFile();file.path=path;files.set(path,text);return file;});
     // 归档只通过 Vault API 写入，无 Node 绝对路径写操作。
-    const app={vault:{getAbstractFileByPath:(path:string)=>files.get(path),createFolder:async(path:string)=>{files.set(path,{});},createBinary:async(path:string,bytes:ArrayBuffer)=>{files.set(path,bytes);},create},workspace:{getLeaf:()=>({openFile:vi.fn()})}};
+    const app={vault:{configDir:'配置目录',getAbstractFileByPath:(path:string)=>files.get(path),createFolder:async(path:string)=>{files.set(path,{});},createBinary:async(path:string,bytes:ArrayBuffer)=>{files.set(path,bytes);},create},workspace:{getLeaf:()=>({openFile:vi.fn()})}};
     // 模拟鉴权资源请求，响应不包含 Cookie 或密钥。
     const provider={asset:vi.fn(async()=>new ArrayBuffer(4))};
     // 带引号标题验证 YAML 可安全编码。

@@ -1,0 +1,4 @@
+import tseslint from "typescript-eslint";
+import obsidianmd from "eslint-plugin-obsidianmd";
+/** 持续检查社区审核涉及的类型边界、异步事件与宿主 API 规范 */
+export default tseslint.config({files:["src/**/*.ts"], languageOptions:{parser:tseslint.parser,parserOptions:{project:"./tsconfig.json",tsconfigRootDir:process.cwd()}},plugins:{"@typescript-eslint":tseslint.plugin,obsidianmd},rules:{"@typescript-eslint/no-unsafe-assignment":"error","@typescript-eslint/no-unsafe-member-access":"error","@typescript-eslint/no-unsafe-argument":"error","@typescript-eslint/no-misused-promises":"error","@typescript-eslint/no-redundant-type-constituents":"error","no-control-regex":"error","no-useless-escape":"error",...Object.fromEntries(Object.keys(obsidianmd.rules).filter(key=>/prefer-window-timers|prefer-create-el|hardcoded-config-path|settings-tab/.test(key)).map(key=>["obsidianmd/"+key,"error"]))}});

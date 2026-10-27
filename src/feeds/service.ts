@@ -14,7 +14,7 @@ export class FeedService {
     /** 同一订阅的重复刷新共享正在进行的请求 */
     private pending = new Map<string, Promise<void>>();
     /** 普通 RSS 的串行自动刷新循环 */
-    private timer?: ReturnType<typeof setTimeout>;
+    private timer?: number;
     /** 公众号资源适配器只在需要时连接本机程序 */
     private collector?: CollectorProvider;
     /** 侧栏在数据变化时更新，不重建正在阅读的弹窗 */
@@ -28,7 +28,8 @@ export class FeedService {
     private restorePending?: Promise<{ restored: number; needsLink: number; failed: number; loggedIn: boolean }>;
     private snapshot?: ScheduleSnapshot;
     private watcher?: FSWatcher;
-    private watchTimer?: ReturnType<typeof setTimeout>;
+    /** 快照变化合并为一次界面刷新，卸载时统一取消 */
+    private watchTimer?: number;
     private wakeRetryAt = 0;
     private wakeFailures = 0;
     lastError = '';
@@ -42,7 +43,7 @@ export class FeedService {
         // 定向恢复文件只在一次修复中使用，避免旧进程在重载前再次保存空列表。
         const recoveryPath = join(this.directory, 'cache/wechat-subscriptions-recovery.json');
         let recovery: Feed[] = [];
-        try { const value = JSON.parse(await readFile(recoveryPath, 'utf8')); if (Array.isArray(value)) recovery = value.filter(feed => feed.kind === 'wechat' && /^account_[a-f0-9]{32}$/.test(feed.id) && typeof feed.title === 'string'); } catch { /* 正常安装无恢复文件。 */ }
+        try { const value: unknown = JSON.parse(await readFile(recoveryPath, 'utf8'));  if (Array.isArray(value)) recovery = value.filter((feed: unknown): feed is Feed => !!feed && typeof feed === 'object' && 'kind' in feed && feed.kind === 'wechat' && 'id' in feed && typeof feed.id === 'string' && /^account_[a-f0-9]{32}$/.test(feed.id) && 'title' in feed && typeof feed.title === 'string'); } catch { /* 正常安装无恢复文件。 */ }
         if (recovery.length) {
             const plan = planSubscriptionImport(this.data, recovery);
             this.data.wechatFeeds = plan.wechatFeeds;
@@ -51,7 +52,9 @@ export class FeedService {
         }
         for (const feed of this.feeds()) {
             try {
-                this.cache.set(feed.id, JSON.parse(await readFile(join(this.directory, 'cache', `${feed.id}.json`), 'utf8')).articles || []);
+                // 读取本插件写入的文章缓存，不让未声明类型穿透服务边界。
+                const cached = JSON.parse(await readFile(join(this.directory, 'cache', `${feed.id}.json`), 'utf8')) as { articles?: Article[] };
+                this.cache.set(feed.id, Array.isArray(cached.articles) ? cached.articles : []);
             }
             catch {
                 this.cache.set(feed.id, []);
@@ -82,7 +85,7 @@ export class FeedService {
         const path = join(this.directory, 'cache', 'content', `${digest(id)}.json`);
         let previous: Article | undefined;
         try {
-            const cached: Article = JSON.parse(await readFile(path, 'utf8'));
+            const cached = JSON.parse(await readFile(path, 'utf8')) as Article;
             if (cached.id === id && cached.html && cached.state === 'ready') previous = cached;
             if (cached.id === id && cached.contentVersion === item.contentVersion && cached.html && cached.state === 'ready') return this.readable(cached);
         } catch { /* 首次补齐正文缓存。 */ }
@@ -210,7 +213,7 @@ export class FeedService {
     async enableWeChat(): Promise<void> { this.data.wechatEnabled = true; this.wakeFailures = 0; this.wakeRetryAt = 0; await this.save(); await this.refreshWeChat(); this.watchSnapshot(); this.schedule(); }
     /** UI 停用时停止自动刷新，不删除任何文章 */
     dispose(): void { this.closed = true; if (this.timer)
-        clearTimeout(this.timer); if (this.watchTimer) clearTimeout(this.watchTimer); this.watcher?.close(); }
+        window.clearTimeout(this.timer); if (this.watchTimer) window.clearTimeout(this.watchTimer); this.watcher?.close(); }
     /** HTTP 响应头大小写不敏感 */
     private header(headers: Record<string, string>, name: string): string | undefined { return Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1]; }
     /** 独立刷新普通源，采用增量合并，保留已缓存的历史 */
@@ -274,7 +277,7 @@ export class FeedService {
                     if (progress !== lastProgress) { lastProgress = progress; progressAt = Date.now(); }
                     if (Date.now() - progressAt > 600000) throw new Error('采集任务长时间没有进展，请重新连接后重试');
                     await this.refreshWeChat();
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    await new Promise(resolve => window.setTimeout(resolve, 2000));
                 }
                 if (!this.closed) await this.refreshWeChat();
             };
@@ -385,15 +388,15 @@ export class FeedService {
         try {
             this.watcher = watch(join(this.runtime.root, 'runtime'), (_event, filename) => {
                 if (filename && filename !== 'schedule.json') return;
-                if (this.watchTimer) clearTimeout(this.watchTimer);
-                this.watchTimer = setTimeout(() => { void this.readSnapshot().then(() => this.schedule()); }, 200);
+                if (this.watchTimer) window.clearTimeout(this.watchTimer);
+                this.watchTimer = window.setTimeout(() => { void this.readSnapshot().then(() => this.schedule()); }, 200);
             });
             this.watcher.on('error', () => { this.watcher?.close(); this.watcher = undefined; });
         } catch { /* 首次连接后重试监听新建目录。 */ }
     }
     /** 单一轻量计时器等待最早到期时间，恢复时按真实时间重新核对。 */
     schedule(): void {
-        if (this.timer) clearTimeout(this.timer);
+        if (this.timer) window.clearTimeout(this.timer);
         if (this.closed) return;
         const now = Date.now();
         const times = this.data.feeds.filter(feed => feed.enabled).map(feed => feed.retryAt || ((feed.checkedAt || 0) + feed.intervalMinutes * 60000));
@@ -406,7 +409,7 @@ export class FeedService {
                 times.push(Math.max(account.nextSyncAt * 1000, busyUntil, this.wakeRetryAt));
             }
         }
-        if (times.length) this.timer = setTimeout(() => { void this.tick(); }, Math.min(2147483647, Math.max(1000, Math.min(...times) - now)));
+        if (times.length) this.timer = window.setTimeout(() => { void this.tick(); }, Math.min(2147483647, Math.max(1000, Math.min(...times) - now)));
     }
     /** 恢复前台或联网时按实际到期时间核对，不补跑错过的每个周期。 */
     async resume(): Promise<void> { await this.tick(); }

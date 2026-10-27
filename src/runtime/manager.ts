@@ -8,7 +8,7 @@ import { LocalCollectorClient, CollectorFailure, type Discovery } from '../colle
 /** 跟随 Obsidian 运行的共享采集实例管理器 */
 export class RuntimeManager {
   /** 当前客户端的租约续期计时器 */
-  private timer?: ReturnType<typeof setInterval>;
+  private timer?: number;
   /** 启动与重连共用单个异步任务，避免同一插件重复拉起 */
   private pending?: Promise<LocalCollectorClient>;
   /** 当前笔记库的客户端会话 ID */
@@ -22,7 +22,8 @@ export class RuntimeManager {
   private references = 0;
   private stoppingInstance = false;
   private persistent = false;
-  private idleTimer?: ReturnType<typeof setTimeout>;
+  /** 最后一次操作结束后的延迟租约释放计时器 */
+  private idleTimer?: number;
   private disconnecting?: Promise<void>;
   private managed: CollectorProvider = {
     health: () => this.session(client => client.health()),
@@ -38,7 +39,7 @@ export class RuntimeManager {
   }
   async acquire(): Promise<() => void> {
     if (this.disposed) throw new Error('插件已卸载');
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.idleTimer) window.clearTimeout(this.idleTimer);
     this.references++;
     try { await this.disconnecting; await this.rawConnect(); }
     catch (error) { this.references--; this.scheduleRelease(); throw error; }
@@ -55,14 +56,14 @@ export class RuntimeManager {
     else this.scheduleRelease();
   }
   private scheduleRelease(): void {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.idleTimer) window.clearTimeout(this.idleTimer);
     if (this.references || this.persistent || this.disposed) return;
-    this.idleTimer = setTimeout(() => {
+    this.idleTimer = window.setTimeout(() => {
       this.disconnecting = this.disconnect().finally(() => { this.disconnecting = undefined; });
     }, 15000);
   }
   private async disconnect(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) window.clearInterval(this.timer);
     const client = this.client, id = this.clientId;
     this.client = undefined; this.clientId = undefined;
     try { if (client && id) await client.call(`/v1/clients/${id}`, 'DELETE'); } catch { /* 到期回收 */ }
@@ -106,7 +107,7 @@ export class RuntimeManager {
   private async start(): Promise<LocalCollectorClient> {
     if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('首个内测包仅支持 macOS Apple Silicon');
     // 连续失败后有限退避，面板轮询不能触发无限重启。
-    if (this.restartAttempts) await new Promise(resolve => setTimeout(resolve, Math.min(this.restartAttempts * 2000, 6000)));
+    if (this.restartAttempts) await new Promise(resolve => window.setTimeout(resolve, Math.min(this.restartAttempts * 2000, 6000)));
     // 多笔记库优先复用已验证的共享实例。
     let client = await this.discover();
     if (!client && this.stoppingInstance) {
@@ -114,7 +115,7 @@ export class RuntimeManager {
       const lock = join(homedir(), 'Library/Application Support/Obsidian WeChat Reader/runtime/ts-instance.lock');
       let locked = true;
       for (let attempt = 0; attempt < 60 && !this.disposed; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => window.setTimeout(resolve, 500));
         locked = await access(lock).then(() => true, () => false);
         if (!locked) break;
       }
@@ -133,7 +134,7 @@ export class RuntimeManager {
       child.unref();
       for (let attempt = 0; attempt < 60 && !this.disposed; attempt++) {
         // 约三十秒启动超时，不无限拉起失败程序。
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => window.setTimeout(resolve, 500));
         if (spawnError) throw new Error('附属程序启动失败，请检查执行权限或 macOS 安全提示');
         client = await this.discover();
         if (client) break;
@@ -147,8 +148,8 @@ export class RuntimeManager {
     const lease = await client.call<{id: string}>('/v1/clients', 'POST', {});
     this.clientId = lease.id;
     this.client = client;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = setInterval(() => { void this.renew(); }, 25_000);
+    if (this.timer) window.clearInterval(this.timer);
+    this.timer = window.setInterval(() => { void this.renew(); }, 25_000);
     return client;
   }
   /** 仅活跃操作或常驻模式续租；失败不擅自重启闲置服务。 */
@@ -158,14 +159,14 @@ export class RuntimeManager {
     catch {
       if (client !== this.client) return;
       this.client = undefined;
-      if (this.timer) clearInterval(this.timer);
+      if (this.timer) window.clearInterval(this.timer);
       this.onError('采集服务连接中断，请在面板中点击重新连接');
     }
   }
   /** 卸载时释放当前库租约，其他库和在途任务继续运行 */
   async dispose(): Promise<void> {
     this.disposed = true;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.idleTimer) window.clearTimeout(this.idleTimer);
     await this.pending?.catch(() => undefined);
     await this.disconnecting;
     await this.disconnect();

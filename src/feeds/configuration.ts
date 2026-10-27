@@ -40,7 +40,7 @@ export function exportSubscriptionConfiguration(feeds: Feed[]): string {
 export function parseSubscriptionConfiguration(text: string): Feed[] {
     if (text.length > MAX_SIZE) throw new Error('订阅配置不能超过 5 MB');
     let value: Record<string, unknown>;
-    try { value = JSON.parse(text.replace(/^\uFEFF/, '')); } catch { throw new Error('订阅配置不是有效的 JSON 文件'); }
+    try { value = JSON.parse(text.replace(/^\uFEFF/, '')) as Record<string, unknown>; } catch { throw new Error('订阅配置不是有效的 JSON 文件'); }
     if (!value || value.format !== FORMAT || value.version !== 1 || !Array.isArray(value.subscriptions)) throw new Error('请选择本插件导出的订阅配置（版本 1）');
     if (value.subscriptions.length > 5000) throw new Error('单次最多导入 5000 个订阅');
     return value.subscriptions.map((row, index) => {

@@ -68,7 +68,7 @@ export class LoginModal extends Modal {
     private login?: Login;
     private releaseSession?: () => void;
     /** 当前二维码轮询计时器 */
-    private timer?: ReturnType<typeof setInterval>;
+    private timer?: number;
     /** 模态窗口已关闭时不再追加图片 */
     private closed = false;
     /** 轮询防重标志 */
@@ -86,7 +86,7 @@ export class LoginModal extends Modal {
         // 获取新会话前停止旧的界面轮询。
         const start = async (): Promise<void> => {
             if (this.timer)
-                clearInterval(this.timer);
+                window.clearInterval(this.timer);
             try {
                 if (!this.releaseSession) this.releaseSession = await this.plugin.runtime.acquire();
                 if (this.closed) { this.releaseSession(); this.releaseSession = undefined; return; }
@@ -97,7 +97,8 @@ export class LoginModal extends Modal {
                 if (this.login.qr && /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=\s]+$/.test(this.login.qr))
                     display.createEl('img', { attr: { src: this.login.qr, alt: '微信读书登录二维码' } });
                 status.setText(LOGIN_LABELS[this.login.state] || this.login.state);
-                this.timer = setInterval(async () => {
+                this.timer = window.setInterval(() => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => {
                     if (this.polling || !this.login || this.closed)
                         return;
                     this.polling = true;
@@ -107,7 +108,7 @@ export class LoginModal extends Modal {
                             return;
                         status.setText(LOGIN_LABELS[this.login.state] || this.login.state);
                         if (['success', 'failed', 'expired'].includes(this.login.state)) {
-                            clearInterval(this.timer);
+                            window.clearInterval(this.timer);
                             display.empty();
                             if (this.login.state === 'success') {
                                 status.setText('登录成功，正在恢复本库公众号订阅…');
@@ -126,7 +127,7 @@ export class LoginModal extends Modal {
                     finally {
                         this.polling = false;
                     }
-                }, 2000);
+                })(); }, 2000);
             }
             catch (error) {
                 status.setText(error instanceof Error ? error.message : '二维码获取失败');
@@ -137,7 +138,7 @@ export class LoginModal extends Modal {
     }
     /** 离开窗口停止请求，服务端扫码会话按有效期自然终止 */
     onClose(): void { this.closed = true; this.releaseSession?.(); this.releaseSession = undefined; if (this.timer)
-        clearInterval(this.timer); this.contentEl.empty(); }
+        window.clearInterval(this.timer); this.contentEl.empty(); }
 }
 /** 订阅设置保留历史文章，删除订阅需明确确认 */
 export class AccountModal extends Modal {

@@ -239,10 +239,11 @@ export class ArticleReaderModal extends Modal {
     /** 收藏按钮表达当前库的状态 */
     private updateStar(): void { this.star.setText(this.article && this.plugin.data.reading[this.article.id]?.starred ? '★' : '☆'); this.star.setAttribute('aria-label', '切换收藏'); }
     /** 操作期间禁用当前按钮，失败保持弹窗与滚动位置 */
-    private button(parent: HTMLElement, text: string, action: () => unknown | Promise<unknown>, cls: string): HTMLButtonElement {
+    private button(parent: HTMLElement, text: string, action: () => unknown, cls: string): HTMLButtonElement {
         // 顶部和底部按钮的事件都归属于当前模态。
         const button = parent.createEl('button', { text, cls });
-        button.addEventListener('click', async () => { button.disabled = true; try {
+        button.addEventListener('click', () => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => { button.disabled = true; try {
             await action();
         }
         catch (error) {
@@ -251,7 +252,7 @@ export class ArticleReaderModal extends Modal {
         finally {
             if (!this.closed)
                 button.disabled = button === this.previous ? this.index === 0 : button === this.next ? this.index === this.queue.length - 1 : false;
-        } });
+        } })(); });
         return button;
     }
     /** 切换或关闭时释放已创建图片资源 */

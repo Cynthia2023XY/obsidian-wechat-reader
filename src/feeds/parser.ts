@@ -129,7 +129,7 @@ export function parseFeed(value: string, feed: Feed): {
         // 纯文本使用 DOM textContent 转义，不当作 HTML 插入。
         const plain = atom && (!body?.getAttribute('type') || body?.getAttribute('type') === 'text');
         // 纯文本容器只用于安全序列化。
-        const escaped = document.createElement('p');
+        const escaped = createEl('p');
         escaped.textContent = raw;
         // 图片相对地址继承内容节点 xml:base。
         const normalized = normalizeContent(plain ? escaped.outerHTML : raw, body ? xmlBase(body, base) : base);

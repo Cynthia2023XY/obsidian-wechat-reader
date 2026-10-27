@@ -1,5 +1,23 @@
 # WeChat Reader · RSS 阅读
 
+## Overview
+
+WeChat Reader is a desktop RSS and Atom reader for Obsidian. Manage feeds in the sidebar, read and bookmark articles, and archive articles as Markdown with local images.
+
+### Installation
+
+Download `main.js`, `manifest.json`, and `styles.css` from the same GitHub release. Place them in `<vault configuration folder>/plugins/wechat-reader/`, restart Obsidian, and enable WeChat Reader in Community plugins. The configuration folder is usually `.obsidian`, but can be customized.
+
+Standard release assets support ordinary RSS and Atom feeds. WeChat subscriptions additionally require the manually installed companion `engine/` from the macOS Apple Silicon full package. The plugin never downloads or installs itself or its dependencies.
+
+### Usage
+
+Run “打开 RSS 阅读侧栏” or click the RSS ribbon icon, then use `+` to add an RSS or Atom feed URL. Open an article to read it, use the arrow keys to navigate, and choose “保存为 MD” to archive it. Configure the archive folder and reader width in the plugin settings.
+
+### Privacy and system access
+
+RSS requests go to user-configured feeds and article image hosts. Optional WeChat support requires a WeChat Read account and contacts WeChat/WeChat Read for QR login, subscription lookup, and article retrieval. It may launch a local Chrome or Edge browser and a bundled Node companion process. The companion stores credentials, articles, and collection state outside the vault in `~/Library/Application Support/Obsidian WeChat Reader/`. Copy actions write article text or subscription links to the system clipboard. There is no telemetry, advertising, or paid feature.
+
 Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公众号，在原生弹窗中阅读、切换、收藏与归档。界面直接使用 Obsidian 主题变量，自动跟随深色、浅色主题。
 
 ## 许可与运行说明
@@ -12,7 +30,7 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 
 ## 安装和使用
 
-1. 解压 `dist/wechat-reader-0.2.0-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
+1. 解压 `dist/wechat-reader-0.2.1-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
 2. 点击 RSS 图标或执行“打开 RSS 阅读侧栏”。首次安装和一期升级默认停靠**右侧栏**，后续保留用户拖动的布局。
 3. 点击 `+` 添加 RSS/Atom XML 地址。菜单支持 OPML 导入预览和导出；重复 URL 保留原源，同名源可分别放在不同分组。右键源可以修改名称、分组、刷新周期或停止自动刷新；历史缓存和阅读状态保留。
 4. 点击文章打开原生阅读弹窗。`← / →` 切换前后文章，`↑ / ↓` 滚动正文，`Esc` 关闭；输入框、输入法和其他弹窗不受影响。打开时冻结文章队列，标记已读后不会跳篇，首尾不循环。
@@ -67,6 +85,6 @@ npm run test:package
 WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 ```
 
-`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.2.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save` 和 `portable-subscriptions` 能力；本次升级须包含新版 `engine/`。
+`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.2.1，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save` 和 `portable-subscriptions` 能力；本次升级须包含新版 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。

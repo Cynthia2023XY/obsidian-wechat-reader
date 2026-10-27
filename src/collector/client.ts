@@ -22,8 +22,9 @@ export class LocalCollectorClient implements CollectorProvider {
     // 请求密钥只在头部传递，避免进入图片地址或归档正文。
     const response = await requestUrl({ url: this.url(path), method, headers: { 'X-Reader-Key': this.discovery.key, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), throw: false });
     // 仅读取服务明确返回的业务错误，避免泄露响应正文。
-    const result = response.json;
-    if (response.status >= 400 || result.error) throw new CollectorFailure(result.error?.message || '采集程序请求失败', result.error?.code || 'NETWORK');
+    const result = response.json as { data?: T; error?: { message?: unknown; code?: unknown } };
+    if (!result || typeof result !== 'object') throw new CollectorFailure('采集程序响应格式无效', 'PROTOCOL');
+    if (response.status >= 400 || result.error) throw new CollectorFailure(typeof result.error?.message === 'string' ? result.error.message : '采集程序请求失败', typeof result.error?.code === 'string' ? result.error.code : 'NETWORK');
     return result.data as T;
   }
   /** 健康检查同时验证固定身份和当前实例，防止复用错误服务 */

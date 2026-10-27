@@ -50,7 +50,8 @@ export class ImportOpmlModal extends Modal {
         const file = this.contentEl.createEl('input', { type: 'file', attr: { accept: '.opml,.xml,text/xml,application/xml' } });
         // 预览区采用文本，防止清单中的名称被当作 HTML。
         const preview = this.contentEl.createDiv({ cls: 'wr-import-preview' });
-        file.addEventListener('change', async () => { try {
+        file.addEventListener('change', () => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => { try {
             this.items = parseOpml(await file.files![0].text(), this.plugin.service.feeds());
             preview.empty();
             for (const item of this.items)
@@ -58,7 +59,7 @@ export class ImportOpmlModal extends Modal {
         }
         catch (error) {
             new Notice(error instanceof Error ? error.message : '清单读取失败');
-        } });
+        } })(); });
         new Setting(this.contentEl).addButton(button => button.setButtonText('确认导入').setCta().onClick(async () => {
             button.setDisabled(true);
             // 每个订阅独立执行，错误不会影响其余条目。

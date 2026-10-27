@@ -154,12 +154,12 @@ export class ReaderView extends ItemView {
             const count = await this.plugin.readingState.set(ids, read);
             if (!count) { new Notice(read ? '没有未读文章' : '没有已读文章'); return; }
             const token = this.plugin.readingState.undoToken;
-            const message = document.createDocumentFragment();
+            const message = createFragment();
             message.append(`已将 ${count} 篇文章标记为${read ? '已读' : '未读'} `);
-            const undo = document.createElement('a');
+            const undo = createEl('a');
             undo.textContent = '撤销';
             undo.href = '#';
-            undo.addEventListener('click', event => { event.preventDefault(); void this.plugin.readingState.undo(token).then(restored => new Notice(restored ? '已撤销' : '已有新的阅读操作，撤销已失效')).catch(error => new Notice(error.message)); });
+            undo.addEventListener('click', event => { event.preventDefault(); void this.plugin.readingState.undo(token).then(restored => new Notice(restored ? '已撤销' : '已有新的阅读操作，撤销已失效')).catch(error => new Notice(error instanceof Error ? error.message : '操作失败')); });
             message.append(undo);
             new Notice(message, 8000);
         } catch (error) { new Notice(error instanceof Error ? error.message : '保存阅读状态失败'); }
@@ -167,7 +167,7 @@ export class ReaderView extends ItemView {
     /** 源菜单管理普通订阅和公众号各自的配置 */
     private feedMenu(feed: Feed, event: MouseEvent): void {
         // 原生 Menu 自动适配主题及键盘焦点。
-        const menu = new Menu().addItem(item => item.setTitle('立即刷新').setIcon('refresh-cw').onClick(() => { void this.plugin.service.refresh(feed).catch(error => new Notice(error.message)); }));
+        const menu = new Menu().addItem(item => item.setTitle('立即刷新').setIcon('refresh-cw').onClick(() => { void this.plugin.service.refresh(feed).catch(error => new Notice(error instanceof Error ? error.message : '操作失败')); }));
         menu.addItem(item => item.setTitle('标记为已读').setIcon('check-check').onClick(() => this.markRead(this.plugin.service.articles(feed.id).map(article => article.id))));
         if (feed.kind === 'wechat' && feed.missingLocalData) {
             menu.addItem(item => item.setTitle('补充恢复链接').setIcon('link').onClick(() => new SubscribeModal(this.plugin, () => this.refresh(), feed).open()));
@@ -247,7 +247,7 @@ export class ReaderView extends ItemView {
     private async refreshAll(): Promise<void> {
         const feeds = this.plugin.service.feeds().filter(feed => feed.enabled);
         for (const feed of feeds.filter(feed => feed.kind !== 'wechat')) {
-            await this.plugin.service.refresh(feed).catch(error => new Notice(`${feed.title}：${error.message}`));
+            await this.plugin.service.refresh(feed).catch(error => new Notice(`${feed.title}：${error instanceof Error ? error.message : '操作失败'}`));
         }
         const wechat = feeds.filter(feed => feed.kind === 'wechat' && !feed.missingLocalData);
         if (wechat.length) await this.plugin.service.syncWeChat(async provider => {
@@ -259,12 +259,12 @@ export class ReaderView extends ItemView {
     private iconButton(parent: HTMLElement, icon: string, label: string, action: (event: MouseEvent) => unknown): void { const button = parent.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': label, title: label } }); setIcon(button, icon); button.addEventListener('click', event => { try {
         const result = action(event);
         if (result instanceof Promise)
-            void result.catch(error => new Notice(error.message));
+            void result.catch(error => new Notice(error instanceof Error ? error.message : '操作失败'));
     }
     catch (error) {
         new Notice(error instanceof Error ? error.message : '操作失败');
     } }); }
     /** 普通文本操作按钮保持侧栏紧凑 */
     private textButton(parent: HTMLElement, label: string, action: () => unknown): void { const button = parent.createEl('button', { text: label, cls: 'wr-text-button' }); button.addEventListener('click', () => { const result = action(); if (result instanceof Promise)
-        void result.catch(error => new Notice(error.message)); }); }
+        void result.catch(error => new Notice(error instanceof Error ? error.message : '操作失败')); }); }
 }

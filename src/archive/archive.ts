@@ -4,10 +4,10 @@ import TurndownService from 'turndown';
 import type { Article, CollectorProvider, ReadingState } from '../collector/types';
 
 /** 将用户标题转换为适合笔记库的单段文件名 */
-export function safeName(value: string): string { return value.replace(/[\\/:*?"<>|#\[\]\u0000-\u001f]/g, '-').replace(/^\.+$/, '-').trim().slice(0, 90) || '未命名'; }
+export function safeName(value: string): string { return Array.from(value, char => char.charCodeAt(0) < 32 || /[\\/:*?"<>|#[\]]/.test(char) ? '-' : char).join('').replace(/^\.+$/, '-').trim().slice(0, 90) || '未命名'; }
 /** 验证归档目录，阻止绝对路径或路径穿越 */
-export function archiveRoot(value: string): string {
-  if (!value.trim() || /^(\/|\\|[a-z]:)/i.test(value) || value.split(/[\\/]/).some(segment => segment === '..' || segment === '.obsidian')) throw new Error('请选择笔记库内的普通归档目录');
+export function archiveRoot(value: string, configDir: string): string {
+  if (!value.trim() || /^(\/|\\|[a-z]:)/i.test(value) || value.split(/[\\/]/).some(segment => segment === '..') || normalizePath(value).toLowerCase() === normalizePath(configDir).toLowerCase() || normalizePath(value).toLowerCase().startsWith(`${normalizePath(configDir).toLowerCase()}/`)) throw new Error('请选择笔记库内的普通归档目录');
   return normalizePath(value);
 }
 /** 清理不可信 HTML，所有图片都由本机鉴权获取后替换 */
@@ -25,7 +25,7 @@ export async function archiveArticle(app: App, provider: CollectorProvider, arti
   }
   if (article.state !== 'ready' || !article.html) throw new Error('正文尚未就绪，无法归档');
   // 每篇附件隔离，目录经过校验后再创建。
-  const root = archiveRoot(folder);
+  const root = archiveRoot(folder, app.vault.configDir);
   // 日期和稳定 ID 同时避免同名文章碰撞。
   const directory = normalizePath(`${root}/${safeName(accountName)}`);
   // 附件不依赖 localhost，笔记同步到手机后仍可读取。

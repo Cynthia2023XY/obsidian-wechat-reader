@@ -1,4 +1,4 @@
-import { Modal, Notice } from 'obsidian';
+import { Modal, Notice, Setting } from 'obsidian';
 import type WeChatReaderPlugin from '../main';
 import type { Feed } from '../collector/types';
 import { subscriptionForFeed } from '../collector/subscriptions';
@@ -24,25 +24,27 @@ export function renderSubscriptionLinks(parent: HTMLElement, feeds: Feed[]): voi
         input.placeholder = subscriptionForFeed(feed) ? '未保存原文链接；已保存公众号身份，可用于恢复订阅。' : '未保存原文链接；请在侧栏右键公众号，补充恢复链接。';
         const copy = control.createEl('button', { text: '复制链接', attr: { 'aria-label': `复制${feed.title}的链接` } });
         copy.disabled = !url;
-        copy.addEventListener('click', async () => {
+        copy.addEventListener('click', () => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => {
             try { if (url) { await navigator.clipboard.writeText(url); new Notice('链接已复制'); } }
             catch { new Notice('复制失败，请手动选择并复制链接'); }
-        });
+        })(); });
     }
 }
 export function appendSubscriptionSettings(parent: HTMLElement, plugin: WeChatReaderPlugin, onImported: () => void): HTMLElement {
-    parent.createEl('h3', { text: '订阅配置' });
+    new Setting(parent).setName('订阅配置').setHeading();
     parent.createEl('p', { cls: 'wr-placeholder', text: '导出名称、链接、分组、开关和刷新间隔，支持 RSS、Atom 和公众号。登录凭据、文章缓存和阅读记录不包含在内。' });
     const actions = parent.createDiv({ cls: 'wr-subscription-config-actions' });
     const exportButton = actions.createEl('button', { text: '导出订阅配置' });
-    exportButton.addEventListener('click', async () => {
+    exportButton.addEventListener('click', () => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => {
         exportButton.disabled = true;
         try { await plugin.exportSubscriptionConfiguration(); }
         catch (error) { new Notice(error instanceof Error ? error.message : '导出失败'); }
         finally { exportButton.disabled = false; }
-    });
+    })(); });
     actions.createEl('button', { text: '导入订阅配置' }).addEventListener('click', () => new SubscriptionImportModal(plugin, onImported).open());
-    parent.createEl('h3', { text: '当前订阅链接（只读）' });
+    new Setting(parent).setName('当前订阅链接（只读）').setHeading();
     parent.createEl('p', { cls: 'wr-placeholder', text: '包含已暂停的订阅。公众号显示已保存、用于恢复订阅的原文链接；未保存的链接会明确提示。' });
     const list = parent.createDiv({ cls: 'wr-subscription-settings-list' });
     renderSubscriptionLinks(list, plugin.service.feeds());
@@ -66,7 +68,8 @@ export class SubscriptionImportModal extends Modal {
         actions.createEl('button', { text: '取消' }).addEventListener('click', () => this.close());
         this.confirm = actions.createEl('button', { text: '确认导入', cls: 'mod-cta' });
         this.confirm.disabled = true;
-        file.addEventListener('change', async () => {
+        file.addEventListener('change', () => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => {
             const sequence = ++this.sequence;
             this.text = undefined; this.confirm.disabled = true; this.preview.empty();
             const selected = file.files?.[0];
@@ -79,8 +82,9 @@ export class SubscriptionImportModal extends Modal {
             } catch (error) {
                 if (!this.closed && sequence === this.sequence) this.preview.createEl('p', { cls: 'wr-error', text: error instanceof Error ? error.message : '文件读取失败' });
             }
-        });
-        this.confirm.addEventListener('click', async () => {
+        })(); });
+        this.confirm.addEventListener('click', () => { // DOM 回调同步返回，异步任务在内部处理失败。
+void (async () => {
             if (this.text === undefined) return;
             this.confirm.disabled = true; file.disabled = true;
             try {
@@ -90,7 +94,7 @@ export class SubscriptionImportModal extends Modal {
                 this.close();
             } catch (error) { new Notice(error instanceof Error ? error.message : '导入失败'); }
             finally { if (!this.closed) { this.confirm.disabled = false; file.disabled = false; } }
-        });
+        })(); });
     }
     previewConfiguration(text: string): void {
         this.text = undefined; this.confirm.disabled = true; this.preview.empty();

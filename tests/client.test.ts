@@ -34,6 +34,11 @@ describe('本机 CollectorProvider',()=>{
     vi.spyOn(obsidian,'requestUrl').mockResolvedValue({status:401,json:{error:{code:'AUTH_REQUIRED',message:'请重新扫码'},internal:'不应展示'}} as never);
     await expect(new LocalCollectorClient(discovery).call('/v1/auth/status')).rejects.toMatchObject({code:'AUTH_REQUIRED',message:'请重新扫码'});
   });
+  it('拒绝空的 API 响应并规范化非字符串错误', async () => {
+    vi.spyOn(obsidian, 'requestUrl').mockResolvedValueOnce({ status: 200, json: null } as never).mockResolvedValueOnce({ status: 500, json: { error: { code: 123, message: {} } } } as never);
+    await expect(new LocalCollectorClient(discovery).call('/v1/health')).rejects.toMatchObject({ code: 'PROTOCOL' });
+    await expect(new LocalCollectorClient(discovery).call('/v1/health')).rejects.toMatchObject({ code: 'NETWORK', message: '采集程序请求失败' });
+  });
   it('RSS 使用 XML 响应且不插入实例访问密钥',async()=>{
     // 文件导出读取 text，不对 XML 调用 JSON 解码。
     const request=vi.spyOn(obsidian,'requestUrl').mockResolvedValue({status:200,text:'<rss version="2.0"/>'} as never);

@@ -25,7 +25,14 @@ export class Modal {
 /** 提示只供断言，不显示系统通知 */
 export class Notice {/** 保存提示文本 */ constructor(public message:string) {}}
 /** 本组测试未使用设置控件，保留导出供模块加载 */
-export class Setting {}
+export class Setting {
+  /** 测试中的设置标题沿用原生控件链式调用 */
+  constructor(private container: HTMLElement) {}
+  /** 保留标题文本用于订阅表单断言 */
+  setName(value: string): this { this.container.append(value); return this; }
+  /** 标题结构由真实 Obsidian 宿主负责 */
+  setHeading(): this { return this; }
+}
 /** 订阅面板使用的原生视图与菜单替身。 */
 export class ItemView {
   contentEl = document.createElement('div');
