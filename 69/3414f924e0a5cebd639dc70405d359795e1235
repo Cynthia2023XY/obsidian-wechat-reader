@@ -1,0 +1,19 @@
+tests/runtime.test.ts
+  s_8768effc74544c::t_8325c3902b86ec 1,11-14,17-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "693414f924e0a5cebd639dc70405d359795e1235",
+  "prompts": {},
+  "sessions": {
+    "s_8768effc74544c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17bd7-df0a-7412-a900-b698369eab3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "dingxinyi.2 <dingxinyi.2@jd.com>"
+    }
+  }
+}
