@@ -1,3 +1,4 @@
+import { CacheModal } from './views/cache-modal';
 import { Plugin, FileSystemAdapter, Notice, PluginSettingTab, Setting, WorkspaceLeaf, type SettingDefinitionItem } from 'obsidian';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -46,7 +47,7 @@ export default class WeChatReaderPlugin extends Plugin {
         const settings = new ReaderSettings(this);
         this.service.onChange = () => { for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))
             (leaf.view as ReaderView).render?.(); settings.refreshLinks(); };
-        this.readingState = new ReadingStore(this.data, () => this.persist(), () => this.service.onChange());
+        this.readingState = new ReadingStore(this.data, () => this.persist(), () => this.service.onChange(), id => this.service.articles().find(article => article.id === id));
         this.registerDomEvent(window, 'focus', () => { void this.service.resume(); });
         this.registerDomEvent(window, 'online', () => { void this.service.resume(); });
         this.registerDomEvent(document, 'visibilitychange', () => { if (!document.hidden) void this.service.resume(); });
@@ -200,6 +201,7 @@ class ReaderSettings extends PluginSettingTab {
                 this.update();
             }
         }));
+        new Setting(container).setName('公众号缓存管理').setDesc('预览并清理指定日期以前的共享正文和图片，保留收藏和归档。').addButton(button => button.setButtonText('管理缓存').onClick(() => new CacheModal(this.plugin).open()));
         new Setting(container).setName('打开阅读侧栏').addButton(button => button.setButtonText('打开右侧 RSS 栏').onClick(() => this.plugin.openReader()));
         this.links = appendSubscriptionSettings(container, this.plugin, () => this.refreshLinks());
         container.createEl('p', { text: '← / → 切换文章，↑ / ↓ 滚动正文，Esc 关闭弹窗。打开正文或失败提示后自动已读。' });

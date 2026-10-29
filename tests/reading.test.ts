@@ -42,3 +42,39 @@ describe('批量阅读状态', () => {
         expect(() => intervalMinutes('25', 60, 1440)).toThrow();
     });
 });
+
+describe('全部已读时间基准', () => {
+    it('后续回补旧公众号文章不变成未读，手动未读和未知时间优先', async () => {
+        // 在隔离状态中模拟清零前后的文章加载。
+        const { data, store } = setup();
+        // 只有公众号文章使用历史基准。
+        const old = { id: 'article_old', publishedAt: '2024-01-01T00:00:00Z' } as import('../src/collector/types').Article;
+        const unknown = { id: 'article_unknown', publishedAt: null } as import('../src/collector/types').Article;
+        const fresh = { id: 'article_fresh', publishedAt: '2100-01-01T00:00:00Z' } as import('../src/collector/types').Article;
+        await store.markAll([]);
+        expect(store.isRead(old)).toBe(true);
+        expect(store.isRead(unknown)).toBe(false);
+        expect(store.isRead({ ...unknown, publishedAt: '2024' })).toBe(false);
+        expect(store.isRead({ ...unknown, publishedAt: '2024-02-30T00:00:00Z' })).toBe(false);
+        expect(store.isRead(fresh)).toBe(false);
+        // 手动未读必须能覆盖隐式已读。
+        const withLookup = new ReadingStore(data, async () => {}, () => {}, id => id === old.id ? old : undefined);
+        await withLookup.set([old.id], false);
+        expect(withLookup.isRead(old)).toBe(false);
+        // 持久化内容可用于重启后的判断。
+        const restarted = new ReadingStore(JSON.parse(JSON.stringify(data)), async () => {}, () => {});
+        expect(restarted.isRead(old)).toBe(false);
+        expect(restarted.isRead({ ...old, id: 'article_other' })).toBe(true);
+    });
+    it('撤销全部已读同时恢复基准与具体文章状态', async () => {
+        // 模拟先前已存在的历史基准。
+        const { data, store } = setup();
+        data.readBefore = 1000;
+        await store.markAll([{ id: 'a' } as import('../src/collector/types').Article]);
+        expect(data.reading.a.read).toBe(true);
+        expect(data.readBefore).toBeGreaterThan(1000);
+        expect(await store.undo()).toBe(true);
+        expect(data.readBefore).toBe(1000);
+        expect(data.reading.a.read).toBeUndefined();
+    });
+});

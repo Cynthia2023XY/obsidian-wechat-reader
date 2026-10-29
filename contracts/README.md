@@ -20,7 +20,7 @@
 
 主要错误：AUTH_REQUIRED（扫码）、VERIFICATION_REQUIRED（手机处理验证）、NETWORK / UPSTREAM（稍后重试）、UNAVAILABLE（墓碑）、DISK_FULL（释放空间）、INTERRUPTED（重启后重试）。
 
-文章 identity：reviewId 优先，URL 摘要兜底；后续可靠 reviewId 作为别名，不改变已分配 articleId。分页遇到整页旧项才停止，保留积压偏移，标题相同不合并。正文版本目录原子替换后才提交索引；新版本保留旧归档附件。
+文章 identity：reviewId 优先，URL 摘要兜底；后续可靠 reviewId 作为别名，不改变已分配 articleId。增量分页处理完包含旧项的整页后停止；旧历史偏移只用于用户手动回补，超出单轮上限的新增文章使用独立续采偏移，标题相同不合并。正文版本目录原子替换后才提交索引；新版本保留旧归档附件。
 
 二期持续订阅：`GET /v1/accounts/:id/rss` 返回源级只读 URL，`POST /v1/accounts/:id/rss/token` 撤销旧令牌并返回新地址；`GET /feeds/:id/:token.xml` 与 `/feed-assets/:id/:token/:articleId/:assetId` 仅允许读取对应源的成功内容，不接受管理密钥作为源令牌。令牌不写日志，不导入 OPML。
 
@@ -47,3 +47,14 @@
 - `POST /v1/accounts/restore`：`{id,displayName,subscription}` → `{account,created}`。校验身份与既有 ID 一致；新账户需已登录并由官方接口确认身份，已有账户直接返回，不覆盖设置和任务进度。网络确认后再次检查并发去重。
 - 原文不可用时允许由已保存身份查询元信息确认；身份不一致、登录失效或验证受限时明确失败，不绕过限制。暂停与取消订阅状态照原配置恢复，不自动重新开启。
 - 本机缺失账户在启动时（已登录）或扫码完成后自动重建；恢复失败每次会话只自动尝试一次，手动恢复可重试。旧定义无身份信息时保留入口，要求补一篇原文链接，不按公众号名称猜测身份。
+
+
+## 有界采集与共享缓存管理（2026-10-29）
+
+- 健康信息新增 `bounded-history`、`cache-cleanup`；新客户端要求这两项能力。旧服务仍运行时必须待其退出，不能复用旧程序。
+- `POST /v1/accounts/:id/history`：无需业务字段，返回 202 `{jobId}`。仅手动获取一页历史（最多 10 条）；`FIRST_SYNC_REQUIRED`、`HISTORY_COMPLETE`、`JOB_BUSY` 明确提示限制。任务结果通过 `GET /v1/jobs/:id` 查看。
+- 自动采集不推进 `nextOffset`，首轮之后最多检查三页；单轮新增超过上限时使用 `incrementalOffset` 续采。旧页中的条目先全部处理，再停止；列表顺序异常时可能需要再次刷新。
+- `POST /v1/cache/preview`：`{before: "YYYY-MM-DD", protectedIds: string[]}`，日期为 UTC 零点，返回 `{id, articles, bytes, accounts: [{accountId, articles, bytes}]}`。只统计有可靠发布日期且早于日期的就绪正文，排除保护文章，不删除文件。客户端需汇总已登记笔记库的收藏和归档；读取失败时禁止继续。
+- `POST /v1/cache/clean`：`{id, protectedIds}`，返回 `{articles,bytes}`；预览有效期 5 分钟。执行时重算候选，文章、保护或目录变化时返回 `STALE_PREVIEW`；存在活动采集或多个客户端时返回 `CACHE_BUSY`。成功清理共享正文及图片，保留文章身份，状态改为 `evicted`；其他笔记库和本机 RSS 也会失去对应共享离线正文。必要时可通过原文或重试接口重新获取。
+- 收藏与归档只从本机 Obsidian 登记的可访问笔记库核对；未登记及无法检测的配置不在自动保护范围。清理前预览界面告知此限制并要求用户确认。
+- 以上是本机独立采集器协议，无金科网关或 JAPI；使用现有回环管理密钥及响应封装，失败不暴露本机路径或凭据。

@@ -10,6 +10,8 @@ import type { StoredAccount, StoredAsset, StoredJob } from './core';
 import type { Article, ScheduleSnapshot } from '../src/collector/types';
 import { portableSubscription, subscriptionArticleUrl, wechatAccountId } from '../src/collector/subscriptions';
 import { Scheduler } from './jobs';
+import { executeCleanup, planCleanup } from './cleanup';
+import type { CleanupPlan } from './cleanup';
 import { parseHTML } from 'linkedom';
 /** 运行时根目录参数由插件以数组传入，不使用 shell */
 const rootArgument = process.argv.indexOf('--root');
@@ -64,6 +66,8 @@ export class RuntimeServer {
     private requests = 0;
     private snapshotKey = '';
     private snapshotAt = 0;
+    /** 仅当前实例内保存短期清理预览，避免凭旧预览误删新内容。 */
+    private cleanupPlans = new Map<string, { before: string; revision: string; plan: CleanupPlan; expires: number }>();
     /** 不包含令牌、绝对资源路径或正文的只读索引与调度快照。 */
     publishSnapshot(): void {
         const loggedIn = this.collector.auth.status().loggedIn;
@@ -179,7 +183,7 @@ export class RuntimeServer {
                 let length = 0;
                 for await (const chunk of request) {
                     length += chunk.length;
-                    if (length > 64 * 1024)
+                    if (length > (path.startsWith('/v1/cache/') ? 1024 * 1024 : 64 * 1024))
                         throw new Problem('BODY_TOO_LARGE', '请求数据过大');
                     chunks.push(chunk);
                 }
@@ -197,11 +201,38 @@ export class RuntimeServer {
                     this.usage = { at: Date.now(), size: diskUsage(join(this.store.root, 'data')) };
                 // 程序语言和版本需由客户端显式验证，拒绝误复用旧进程。
                 const disk = statfsSync(this.store.root);
-                reply({ programId: PROGRAM_ID, instanceId: this.instanceId, engineVersion: ENGINE_VERSION, runtimeLanguage: 'typescript', apiVersion: 1, schemaVersion: 1, capabilities: ['login', 'subscriptions', 'articles', 'assets', 'rss-export', 'rss-live', 'leases', 'power-save', 'portable-subscriptions'], browserAvailable: this.collector.browserAvailable(), diskFree: disk.bavail * disk.bsize, diskUsed: this.usage.size });
+                reply({ programId: PROGRAM_ID, instanceId: this.instanceId, engineVersion: ENGINE_VERSION, runtimeLanguage: 'typescript', apiVersion: 1, schemaVersion: 1, capabilities: ['login', 'subscriptions', 'articles', 'assets', 'rss-export', 'rss-live', 'leases', 'power-save', 'portable-subscriptions', 'bounded-history', 'cache-cleanup'], browserAvailable: this.collector.browserAvailable(), diskFree: disk.bavail * disk.bsize, diskUsed: this.usage.size });
                 return;
             }
             if (path === '/v1/runtime/state' && request.method === 'GET') {
                 reply({ activeJobs: this.store.all<StoredJob>('jobs').filter(job => ['queued', 'running'].includes(job.state)), loggedIn: this.collector.auth.status().loggedIn });
+                return;
+            }
+            if (path === '/v1/cache/preview' && request.method === 'POST') {
+                // 预览只读取现有目录，不改变文章与笔记库状态。
+                const plan = planCleanup(this.store, body.before, body.protectedIds);
+                // 随机预览标识仅在当前实例短期有效。
+                const id = randomUUID();
+                this.cleanupPlans.clear();
+                this.cleanupPlans.set(id, { before: body.before, revision: this.store.revision, plan, expires: Date.now() + 300000 });
+                reply({ id, articles: plan.items.length, bytes: plan.bytes, accounts: plan.accounts });
+                return;
+            }
+            if (path === '/v1/cache/clean' && request.method === 'POST') {
+                // 在途采集、多个客户端和陈旧预览均不得改变共享正文。
+                const previous = typeof body.id === 'string' ? this.cleanupPlans.get(body.id) : undefined;
+                if (!previous || previous.expires < Date.now() || previous.revision !== this.store.revision) throw new Problem('STALE_PREVIEW', '缓存或采集状态已变化，请重新预览');
+                if (this.scheduler.busy || this.store.all<StoredJob>('jobs').some(job => ['queued', 'running'].includes(job.state)) || this.clients.size > 1)
+                    throw new Problem('CACHE_BUSY', '请等待采集完成，并关闭其他笔记库的公众号服务后重试');
+                // 保护列表、目录大小和文章版本必须与预览时一致。
+                const current = planCleanup(this.store, previous.before, body.protectedIds);
+                if (JSON.stringify(current) !== JSON.stringify(previous.plan)) throw new Problem('STALE_PREVIEW', '缓存或收藏状态已变化，请重新预览');
+                this.cleanupPlans.delete(body.id);
+                // 实际删除后返回完成数量及可释放字节。
+                const result = executeCleanup(this.store, current);
+                this.usage.at = 0;
+                this.publishSnapshot();
+                reply(result);
                 return;
             }
             if (path === '/v1/sync-due' && request.method === 'POST') {
@@ -330,7 +361,7 @@ export class RuntimeServer {
                 return;
             }
             // 以下路由 ID 不会被用作任意文件名读取。
-            const accountRoute = path.match(/^\/v1\/accounts\/([^/]+)(?:\/(subscription|sync|rss|rss\/token))?$/);
+            const accountRoute = path.match(/^\/v1\/accounts\/([^/]+)(?:\/(subscription|sync|history|rss|rss\/token))?$/);
             if (accountRoute) {
                 // 先读取账户，验证随机 ID 的归属。
                 const account = this.store.get<StoredAccount>('accounts', accountRoute[1]);
@@ -373,6 +404,17 @@ export class RuntimeServer {
                             this.store.put('jobs', job);
                         }
                     reply(account);
+                    return;
+                }
+                if (request.method === 'POST' && accountRoute[2] === 'history') {
+                    // 活动任务与历史操作不能合并，否则用户无法确认实际抓取范围。
+                    if (this.store.all<StoredJob>('jobs').some(job => job.accountId === account.id && ['queued', 'running'].includes(job.state)))
+                        throw new Problem('JOB_BUSY', '该公众号正在采集，请等待完成后获取历史');
+                    if (account.firstSync) throw new Problem('FIRST_SYNC_REQUIRED', '请先完成公众号首次同步');
+                    if (account.historyComplete) throw new Problem('HISTORY_COMPLETE', '该公众号没有更多历史文章');
+                    account.blocked = null;
+                    this.store.put('accounts', account);
+                    reply({ jobId: this.store.enqueue(account.id, 'history').id }, 202);
                     return;
                 }
                 if (request.method === 'POST' && accountRoute[2] === 'sync') {
@@ -438,10 +480,16 @@ export class RuntimeServer {
                 if (request.method === 'POST' && articleRoute[2] === 'retry') {
                     if (article.state === 'unavailable')
                         throw new Problem('UNAVAILABLE', '永久不可用文章不重复下载');
+                    if (this.store.all<StoredJob>('jobs').some(job => job.accountId === article.accountId && ['queued', 'running'].includes(job.state)))
+                        throw new Problem('JOB_BUSY', '该公众号正在采集，请等待完成后重试正文');
                     article.retryImages = article.state === 'ready';
                     article.state = 'temporary_failure';
                     this.store.put('articles', article);
-                    reply({ jobId: this.store.enqueue(article.accountId, 'retry').id }, 202);
+                    // 优先重试用户选择的文章，不让旧失败队列挤出额度。
+                    const job = this.store.enqueue(article.accountId, 'retry');
+                    job.priorityArticleId = article.id;
+                    this.store.put('jobs', job);
+                    reply({ jobId: job.id }, 202);
                     return;
                 }
             }

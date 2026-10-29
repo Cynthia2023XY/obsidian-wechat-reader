@@ -89,6 +89,8 @@ export class FeedService {
             if (cached.id === id && cached.html && cached.state === 'ready') previous = cached;
             if (cached.id === id && cached.contentVersion === item.contentVersion && cached.html && cached.state === 'ready') return this.readable(cached);
         } catch { /* 首次补齐正文缓存。 */ }
+        // 共享正文被清理后，仍优先使用当前库已缓存的正文。
+        if (item.state === 'evicted' && previous) return this.readable(previous);
         if (item.state !== 'ready') return item;
         let article: Article;
         try { article = await (await this.provider()).call<Article>(`/v1/articles/${encodeURIComponent(id)}`); }
@@ -470,8 +472,16 @@ export class FeedService {
     private async asset(id: string, asset: Asset): Promise<ArrayBuffer> {
         if (!id.startsWith('rss_')) {
             const article = this.articles().find(item => item.id === id);
-            const owned = article?.assets.find(item => item.id === asset.id);
-            if (!article || !owned) throw new Error('图片不属于当前文章');
+            let owned = article?.assets.find(item => item.id === asset.id);
+            if (!article) throw new Error('图片不属于当前文章');
+            // 已清理共享正文时，只能从本库已验证正文中确认旧版图片归属。
+            if (!owned && article.state === 'evicted') {
+                try {
+                    const cached = JSON.parse(await readFile(join(this.directory, 'cache/content', `${digest(id)}.json`), 'utf8')) as Article;
+                    if (cached.id === id && cached.contentVersion === asset.contentVersion) owned = cached.assets.find(item => item.id === asset.id);
+                } catch { /* 本库没有可用的旧正文缓存。 */ }
+            }
+            if (!owned) throw new Error('图片不属于当前文章');
             const version = asset.contentVersion || article.contentVersion;
             const path = join(this.directory, 'cache/assets', digest(`${id}:${version}:${asset.id}`));
             try { return Uint8Array.from(await readFile(path)).buffer; } catch { /* 按需补读。 */ }

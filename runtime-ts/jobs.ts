@@ -43,44 +43,59 @@ export class Scheduler {
                 pending.push(article.id);
         }
         try {
-            // 每页遇到一个旧项不能立即截断整轮。
-            let offset = 0, more = false;
-            while (offset < limit && job.source !== 'retry') {
-                // 上游分页数量受本轮额度约束。
+            // 手动历史游标和超过单轮上限的新文章续采游标相互独立。
+            let offset = job.source === 'history' ? (account.nextOffset || 10) : 0, more = false;
+            // 已检查页数和最后一页的身份重合情况控制单轮边界。
+            let pages = 0, lastPageKnown = false;
+            // 仅续接上轮超出限额的近期文章。
+            const continuation = account.incrementalOffset || 0;
+            // 标识当前是否已进入近期续采区间。
+            let resuming = false;
+            if (job.source === 'history' && account.historyComplete)
+                throw new Problem('HISTORY_COMPLETE', '该公众号没有更多历史文章');
+            // 历史回补每次一页；普通采集最多三页，首轮最多一页。
+            const maxPages = job.source === 'history' ? 1 : limit / 10;
+            while (pages < maxPages && job.source !== 'retry') {
+                // 对整页先做身份去重，已收录条目之后的新文章仍需处理。
                 const page = await this.collector.page(account, offset, 10);
                 more = page.more;
-                // 每页判断新增计数，不按标题或单个旧项停止。
-                let freshCount = 0;
+                // 本页存在已收录文章时，处理完整页后停止向历史推进。
+                let known = false;
                 for (const item of page.items.slice(0, 10)) {
-                    // 发现结果和新增标识，用于准确统计及增量停止。
+                    // 稳定身份复用既有已读与正文关联。
                     const { article, fresh } = this.store.discover(account, item);
-                    freshCount += Number(fresh);
+                    known ||= !fresh;
                     job.discovered += Number(fresh);
                     if (['pending', 'temporary_failure'].includes(article.state) && !pending.includes(article.id))
                         pending.push(article.id);
                 }
                 this.store.put('jobs', job);
-                offset += 10;
-                if (!page.items.length || !more || freshCount === 0)
+                pages++; offset += 10; lastPageKnown = known;
+                if (job.source === 'history') {
+                    account.nextOffset = more && page.items.length ? offset : 0;
+                    account.historyComplete = !more || !page.items.length;
                     break;
-            }
-            // 历史积压按持久化偏移继续，每轮仍有上限。
-            const backlog = account.nextOffset || 0;
-            if (job.source !== 'retry' && !account.firstSync && backlog && pending.length < limit && offset < limit) {
-                // 本轮读取的页面或分页结果。
-                const page = await this.collector.page(account, backlog, 10);
-                for (const item of page.items.slice(0, 10)) {
-                    // 发现结果和新增标识，用于准确统计及增量停止。
-                    const { article, fresh } = this.store.discover(account, item);
-                    job.discovered += Number(fresh);
-                    if (['pending', 'temporary_failure'].includes(article.state) && !pending.includes(article.id))
-                        pending.push(article.id);
                 }
-                account.nextOffset = page.more ? backlog + 10 : 0;
+                if (!page.items.length || !more) { account.incrementalOffset = 0; break; }
+                if (known) {
+                    // 上轮新增超过上限时，从专用游标继续，不使用历史回补游标。
+                    if (!account.firstSync && !resuming && continuation >= offset) {
+                        if (pages < maxPages) { offset = continuation; resuming = true; continue; }
+                        account.incrementalOffset = continuation;
+                    } else account.incrementalOffset = 0;
+                    break;
+                }
             }
-            else if (more && offset >= limit)
-                account.nextOffset = Math.max(backlog, offset);
-            for (const article of this.store.all<Article>('articles'))
+            // 首轮只保留手动回补的起点；正常续采只用于未遇到旧文章的长增量。
+            if (account.firstSync && job.source !== 'retry' && job.source !== 'history') {
+                account.nextOffset = more ? 10 : 0;
+                account.historyComplete = !more;
+                account.incrementalOffset = 0;
+            } else if (job.source !== 'retry' && job.source !== 'history' && more && pages === maxPages && !lastPageKnown) {
+                account.incrementalOffset = offset;
+            }
+            // 用户主动重试时才处理旧的失败队列；日常同步不回头下载历史积压。
+            if (job.source === 'retry') for (const article of this.store.all<Article>('articles'))
                 if (article.accountId === account.id && ['pending', 'temporary_failure'].includes(article.state) && !pending.includes(article.id))
                     pending.push(article.id);
             for (const id of pending.slice(0, limit)) {
@@ -123,7 +138,7 @@ export class Scheduler {
         finally {
             // 只回写采集游标与结果，不覆盖执行期间的暂停或改名。
             const current = this.store.get<StoredAccount>('accounts', account.id);
-            Object.assign(current, { firstSync: account.firstSync, blocked: account.blocked, nextOffset: account.nextOffset, nextSyncAt: Date.now() / 1000 + (current.intervalMin + Math.random() * (current.intervalMax - current.intervalMin)) * 60 });
+            Object.assign(current, { firstSync: account.firstSync, blocked: account.blocked, nextOffset: account.nextOffset, historyComplete: account.historyComplete, incrementalOffset: account.incrementalOffset, nextSyncAt: Date.now() / 1000 + (current.intervalMin + Math.random() * (current.intervalMax - current.intervalMin)) * 60 });
             job.finishedAt = utc();
             this.store.put('jobs', job);
             this.store.put('accounts', current);

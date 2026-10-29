@@ -169,13 +169,17 @@ describe('公众号省电阅读缓存', () => {
         expect((await service.article(article.id)).html).toContain('缓存正文');
         await service.contentProvider().asset(article.id, article.assets[0]);
         service.dispose();
+        // 共享正文被清理后，本库已缓存的正文与图片仍应离线可读。
+        await writeFile(join(root, 'runtime/schedule.json'), JSON.stringify({ ...snapshot, revision: 'evicted', articles: [{ ...article, state: 'evicted', assetState: 'evicted', assets: [], contentVersion: '' }] }));
         connect.mockRejectedValue(new Error('不应启动引擎') as never);
         const reload = new FeedService(data, directory, async () => {}, connect, hooks);
         cleanups.push(async () => reload.dispose());
         await reload.load();
         const calls = connect.mock.calls.length;
-        expect((await reload.article(article.id)).html).toContain('缓存正文');
-        expect(new Uint8Array(await reload.contentProvider().asset(article.id, article.assets[0]))).toEqual(new Uint8Array([1,2,3]));
+        // 使用正文携带的版本证明图片来自同一旧缓存。
+        const cached = await reload.article(article.id);
+        expect(cached.html).toContain('缓存正文');
+        expect(new Uint8Array(await reload.contentProvider().asset(article.id, cached.assets[0]))).toEqual(new Uint8Array([1,2,3]));
         expect(connect).toHaveBeenCalledTimes(calls);
         expect(data.reading).toEqual({});
     });

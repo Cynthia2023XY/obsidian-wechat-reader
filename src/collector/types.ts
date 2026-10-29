@@ -3,7 +3,7 @@ export interface CollectorError { code: string; message: string; retryable: bool
 /** 一轮同步的持久化统计 */
 export interface Job { id: string; accountId: string; state: string; discovered: number; succeeded: number; failed: number; error?: CollectorError | null; }
 /** 公众号稳定身份及订阅配置 */
-export interface Account { id: string; platformId: string; bookId: string; displayName: string; originalName: string; subscribed: boolean; autoSync: boolean; nextSyncAt: number; intervalMin: number; intervalMax: number; nextOffset: number; articleUrl?: string; blocked?: CollectorError | null; lastJob?: Job }
+export interface Account { id: string; platformId: string; bookId: string; displayName: string; originalName: string; subscribed: boolean; autoSync: boolean; nextSyncAt: number; intervalMin: number; intervalMax: number; nextOffset: number; incrementalOffset?: number; historyComplete?: boolean; articleUrl?: string; blocked?: CollectorError | null; lastJob?: Job }
 /** 文章资源以 ID 关联，禁止向界面暴露本机路径 */
 export interface Asset { id: string; state: string; mime: string; sourceUrl?: string; contentVersion?: string }
 /** 采集文章与正文状态，阅读状态由笔记库独立保存 */
@@ -19,7 +19,7 @@ export interface Login { id: string; state: string; qr: string | null }
 /** 每个笔记库单独保存的阅读、收藏及归档状态 */
 export interface ReadingState { read?: boolean; starred?: boolean; archive?: string; version?: string }
 /** 插件保存的数据只包含界面偏好与当前笔记库状态 */
-export interface ReaderData { archiveFolder: string; reading: Record<string, ReadingState>; feeds: Feed[]; wechatEnabled: boolean; wechatFeeds: Feed[]; runtimeMode?: 'power-save' | 'persistent'; readerModalWidth?: number; uiVersion?: number }
+export interface ReaderData { archiveFolder: string; reading: Record<string, ReadingState>; feeds: Feed[]; wechatEnabled: boolean; wechatFeeds: Feed[]; runtimeMode?: 'power-save' | 'persistent'; readerModalWidth?: number; uiVersion?: number; readBefore?: number }
 /** TS 采集程序及普通订阅资源的统一适配接口 */
 export interface CollectorProvider {
   health(): Promise<Health>;

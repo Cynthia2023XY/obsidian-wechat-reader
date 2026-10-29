@@ -143,7 +143,7 @@ export class RuntimeManager {
     }
     if (this.disposed) throw new Error('插件已卸载');
     const health = await client.health();
-    if (!health.capabilities?.includes('power-save') || !health.capabilities.includes('portable-subscriptions')) throw new Error('公众号采集程序需要升级，请安装本次包含 engine 目录的完整安装包');
+    if (!health.capabilities?.includes('power-save') || !health.capabilities.includes('portable-subscriptions') || !health.capabilities.includes('bounded-history') || !health.capabilities.includes('cache-cleanup')) throw new Error('公众号采集程序需要升级，请安装本次包含 engine 目录的完整安装包');
     // 每个笔记库只保留当前有效租约。
     const lease = await client.call<{id: string}>('/v1/clients', 'POST', {});
     this.clientId = lease.id;

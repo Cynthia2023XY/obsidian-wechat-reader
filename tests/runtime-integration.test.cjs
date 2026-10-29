@@ -480,3 +480,84 @@ test('恢复链接失效时按稳定身份恢复，链接串号与上游验证�
     assert.equal((await call()).data.account.subscribed, false);
     assert.equal(store.all('accounts').length, 1);
 });
+
+test('自动同步不推进历史游标，显式历史任务每次只回补一页', async t => {
+    // 旧版积压游标必须在升级后保留，但不能被自动任务消费。
+    const { store } = fixture(t), a = account(store);
+    a.firstSync = false; a.nextOffset = 40; store.put('accounts', a);
+    // 模拟第一页是已发现文章，历史页含新旧混合。
+    const first = { url: 'https://mp.weixin.qq.com/s/recent', reviewId: 'recent' };
+    store.discover(a, first);
+    const offsets = [];
+    const collector = { ...fake(), page: async (_account, offset) => { offsets.push(offset); return offset === 0 ? { items: [first], more: true } : { items: [{ url: `https://mp.weixin.qq.com/s/history${offset}` }], more: true }; }, download: async article => { article.state = 'ready'; store.put('articles', article); } };
+    const scheduler = new Scheduler(store, collector, 0);
+    await scheduler.run(store.enqueue(a.id, 'automatic'));
+    assert.deepEqual(offsets, [0]);
+    assert.equal(store.get('accounts', a.id).nextOffset, 40);
+    await scheduler.run(store.enqueue(a.id, 'history'));
+    assert.deepEqual(offsets, [0, 40]);
+    assert.equal(store.get('accounts', a.id).nextOffset, 50);
+    await scheduler.run(store.enqueue(a.id, 'automatic'));
+    assert.deepEqual(offsets, [0, 40, 0]);
+});
+
+test('共享缓存清理预览保护收藏，繁忙与过期预览拒绝执行，确认后保留索引', async t => {
+    // 仅使用临时目录模拟文章正文，不访问真实缓存。
+    const { root, store } = fixture(t), a = account(store);
+    const old = store.discover(a, { url: 'https://mp.weixin.qq.com/s/old', publishedAt: '2024-01-01T00:00:00Z' }).article;
+    const protectedArticle = store.discover(a, { url: 'https://mp.weixin.qq.com/s/protected', publishedAt: '2024-02-01T00:00:00Z' }).article;
+    for (const article of [old, protectedArticle]) {
+        const temp = join(root, 'data/articles', `${article.id}.tmp`);
+        mkdirSync(temp); writeFileSync(join(temp, 'image.img'), 'image');
+        store.commit(article, '<p>正文</p>', [], temp);
+    }
+    const runtime = store.__runtime = new RuntimeServer(store, fake());
+    await runtime.listen(0);
+    const call = async (route, body) => (await fetch(`http://127.0.0.1:${runtime.port}${route}`, { method: 'POST', headers: { 'X-Reader-Key': runtime.key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    const request = { before: '2025-01-01', protectedIds: [protectedArticle.id] };
+    const preview = (await call('/v1/cache/preview', request)).data;
+    assert.equal(preview.articles, 1);
+    assert.equal(preview.accounts[0].accountId, a.id);
+    runtime.clients.set('one', Date.now() + 90000); runtime.clients.set('two', Date.now() + 90000);
+    assert.equal((await call('/v1/cache/clean', { id: preview.id, protectedIds: request.protectedIds })).error.code, 'CACHE_BUSY');
+    runtime.clients.delete('two');
+    assert.equal((await call('/v1/cache/clean', { id: preview.id, protectedIds: [protectedArticle.id, old.id] })).error.code, 'STALE_PREVIEW');
+    const result = await call('/v1/cache/clean', { id: preview.id, protectedIds: request.protectedIds });
+    assert.equal(result.data.articles, 1);
+    assert.equal(store.get('articles', old.id).state, 'evicted');
+    assert.equal(existsSync(join(root, 'data/articles', old.id)), false);
+    assert.equal(existsSync(join(root, 'data/articles', protectedArticle.id)), true);
+    assert.equal(store.get('articles', protectedArticle.id).state, 'ready');
+});
+
+test('近期页中新旧混合时整页处理，但不继续发现历史', async t => {
+    // 当前页有新文章和已收录文章，后续页仅是尚未收录的历史。
+    const { store } = fixture(t), a = account(store);
+    a.firstSync = false; a.nextOffset = 10; store.put('accounts', a);
+    const known = { url: 'https://mp.weixin.qq.com/s/known' };
+    store.discover(a, known);
+    const offsets = [];
+    const collector = { ...fake(), page: async (_account, offset) => { offsets.push(offset); return { items: offset ? [{ url: 'https://mp.weixin.qq.com/s/older' }] : [{ url: 'https://mp.weixin.qq.com/s/new' }, known, { url: 'https://mp.weixin.qq.com/s/new-after-known' }], more: true }; }, download: async article => { article.state = 'ready'; store.put('articles', article); } };
+    await new Scheduler(store, collector, 0).run(store.enqueue(a.id, 'automatic'));
+    assert.deepEqual(offsets, [0]);
+    assert.equal(store.all('articles').length, 3);
+    assert.equal(store.get('accounts', a.id).nextOffset, 10);
+});
+
+test('超过单轮额度的近期新增使用独立游标续采，不启用历史回补', async t => {
+    // 前三页全是新增，第四页才遇到旧文章。
+    const { store } = fixture(t), a = account(store);
+    a.firstSync = false; a.nextOffset = 100; store.put('accounts', a);
+    const known = { url: 'https://mp.weixin.qq.com/s/known' }; store.discover(a, known);
+    const offsets = [];
+    const collector = { ...fake(), page: async (_account, offset) => { offsets.push(offset); return { items: offset < 30 ? Array.from({ length: 10 }, (_, i) => ({ url: `https://mp.weixin.qq.com/s/new${offset+i}` })) : [{ url: 'https://mp.weixin.qq.com/s/last-new' }, known], more: true }; }, download: async article => { article.state = 'ready'; store.put('articles', article); } };
+    const scheduler = new Scheduler(store, collector, 0);
+    await scheduler.run(store.enqueue(a.id, 'automatic'));
+    assert.deepEqual(offsets, [0, 10, 20]);
+    assert.equal(store.get('accounts', a.id).incrementalOffset, 30);
+    await scheduler.run(store.enqueue(a.id, 'automatic'));
+    assert.deepEqual(offsets, [0, 10, 20, 0, 30]);
+    assert.equal(store.get('accounts', a.id).incrementalOffset, 0);
+    assert.equal(store.get('accounts', a.id).nextOffset, 100);
+    assert.equal(store.all('articles').length, 32);
+});
