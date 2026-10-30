@@ -1,0 +1,29 @@
+README.zh-CN.md
+  s_3321f3bd73a432::t_1e1aa9bcb254a2 15,72
+docs/releases/0.3.0.md
+  s_3321f3bd73a432::t_744057fdbbc67e 1-9
+manifest.json
+  s_3321f3bd73a432::t_d562347d7fb57c 4
+package-lock.json
+  s_3321f3bd73a432::t_f3b6e77fbee60a 3,9
+package.json
+  s_3321f3bd73a432::t_cf18ac388ffd09 3
+versions.json
+  s_3321f3bd73a432::t_f5c4342e480ef1 5-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "8cbc40601630fd993992d13d9967f3622c588d40",
+  "prompts": {},
+  "sessions": {
+    "s_3321f3bd73a432": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a185bf-f797-76a0-a759-5fa91e05879b",
+        "model": "gpt-6.1-terra"
+      },
+      "human_author": "dingxinyi.2 <dingxinyi.2@jd.com>"
+    }
+  }
+}
