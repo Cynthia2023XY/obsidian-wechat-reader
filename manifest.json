@@ -1,7 +1,7 @@
 {
   "id": "wechat-reader",
   "name": "WeChat Reader",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "minAppVersion": "1.14.4",
   "description": "订阅 RSS、Atom 和微信公众号，阅读、收藏并归档为 Markdown.",
   "author": "Cynthia Ding",

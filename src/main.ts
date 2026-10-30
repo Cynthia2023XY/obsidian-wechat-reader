@@ -145,7 +145,12 @@ class ReaderSettings extends PluginSettingTab {
     constructor(private plugin: WeChatReaderPlugin) { super(plugin.app, plugin); }
     /** 让新版设置搜索索引归档、阅读及公众号选项 */
     getSettingDefinitions(): SettingDefinitionItem[] {
-        return [{ name: 'RSS 阅读', aliases: ['Markdown 归档目录', '阅读弹窗宽度', '启用微信公众号', '公众号服务运行方式', '订阅配置'], render: setting => { this.renderSettings(setting.settingEl); } }];
+        return [{ name: 'RSS 阅读', aliases: ['Markdown 归档目录', '阅读弹窗宽度', '启用微信公众号', '公众号服务运行方式', '订阅配置'], render: setting => {
+            // 宿主设置行默认横向排列，整页设置需要独立的纵向容器。
+            setting.settingEl.empty();
+            setting.settingEl.addClass('wr-settings-host');
+            this.renderSettings(setting.settingEl.createDiv({ cls: 'wr-settings-content' }));
+        } }];
     }
     /** 仅展示对用户有意义的归档和公众号能力配置 */
     private renderSettings(container: HTMLElement): void {

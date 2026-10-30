@@ -1,6 +1,6 @@
 {
   "name": "wechat-reader",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "微信公众号订阅、全文阅读与本地 RSS 导出",
   "scripts": {

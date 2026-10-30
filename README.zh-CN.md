@@ -12,7 +12,7 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 
 ## 安装和使用
 
-1. 解压 `dist/wechat-reader-0.3.0-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
+1. 解压 `dist/wechat-reader-0.3.1-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
 2. 点击 RSS 图标或执行“打开 RSS 阅读侧栏”。首次安装和一期升级默认停靠**右侧栏**，后续保留用户拖动的布局。
 3. 点击 `+` 添加 RSS/Atom XML 地址。菜单支持 OPML 导入预览和导出；重复 URL 保留原源，同名源可分别放在不同分组。右键源可以修改名称、分组、刷新周期或停止自动刷新；历史缓存和阅读状态保留。
 4. 点击文章打开原生阅读弹窗。`← / →` 切换前后文章，`↑ / ↓` 滚动正文，`Esc` 关闭；输入框、输入法和其他弹窗不受影响。打开时冻结文章队列，标记已读后不会跳篇，首尾不循环。
@@ -69,6 +69,6 @@ npm run test:package
 WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 ```
 
-`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.3.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；本次升级须包含新版 `engine/`。
+`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.3.1，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；公众号功能需要 0.3.0 或更新版本完整包中的 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。
