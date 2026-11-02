@@ -12,7 +12,7 @@ Standard release assets support ordinary RSS and Atom feeds. WeChat subscription
 
 ### Usage
 
-Run “打开 RSS 阅读侧栏” or click the RSS ribbon icon, then use `+` to add an RSS or Atom feed URL. Open an article to read it, use the arrow keys to navigate, and choose “保存为 MD” to archive it. Configure the archive folder and reader width in the plugin settings.
+Run “打开 RSS 阅读侧栏” or click the RSS ribbon icon, then use `+` to add an RSS or Atom feed URL. Open an article to read it, use the arrow keys to navigate, and choose “保存为 MD” to archive it. The All / Unread / Read / Starred entries show articles across feeds immediately; expand the feed navigation to browse one source. Lists show 50 articles initially and load 50 more at a time, with full-result counts. The reader freezes the currently displayed articles for navigation. Configure the archive folder and reader width in the plugin settings.
 
 ### Privacy and system access
 

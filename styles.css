@@ -5,8 +5,8 @@
 .wr-sidebar-toolbar button{box-shadow:none;background:transparent;border:0;padding:5px;color:var(--text-muted)}
 .wr-sidebar-toolbar button:hover{background:var(--background-modifier-hover);color:var(--text-normal)}
 .wr-sidebar-status{font-size:var(--font-ui-smaller);line-height:1.6;color:var(--text-muted);padding:0 5px}
-.wr-subscriptions{flex:1;min-height:0;overflow-y:auto;padding-bottom:10px}
-.wr-aggregate{border-bottom:1px solid var(--background-modifier-border);padding-bottom:12px;margin-bottom:12px}
+.wr-subscriptions{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;padding-bottom:10px}
+.wr-aggregate{flex-shrink:0;border-bottom:1px solid var(--background-modifier-border);padding-bottom:6px;margin-bottom:4px}
 button.wr-tree-row{display:flex;align-items:center;gap:9px;width:100%;padding:8px 9px;margin:2px 0;min-height:34px;height:auto;background:transparent;color:var(--text-normal);border:0;border-radius:var(--radius-s);box-shadow:none;text-align:left}
 button.wr-tree-row:hover,button.wr-article-row:hover{background:var(--background-modifier-hover)}
 button.wr-tree-row.is-active,button.wr-article-row.is-selected{background:var(--text-selection)}
@@ -61,3 +61,13 @@ button.wr-text-button:hover{background:var(--background-modifier-hover);color:va
 textarea.wr-subscription-link{flex:1;min-width:0;resize:vertical;cursor:text;font-size:var(--font-ui-small);overflow-wrap:anywhere}
 .wr-subscription-config-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 @media(max-width:500px){.wr-subscription-link-control{align-items:stretch;flex-direction:column}}
+
+/* 聚合导航和结果各自保持边界，文章滚动不遮住来源入口。 */
+.wr-sources{flex-shrink:0;min-height:0;border-bottom:1px solid var(--background-modifier-border)}
+.wr-source-list{overflow-y:auto;max-height:25vh}
+.wr-source-list .wr-folder{padding-bottom:4px;margin-bottom:4px}
+.wr-results-heading{flex-shrink:0;font-size:var(--font-ui-small);margin:10px 8px 6px;overflow-wrap:anywhere}
+.wr-results{position:relative;flex:1;min-height:0;overflow-y:auto;overflow-anchor:none}
+.wr-results button.wr-article-row{padding-left:7px}
+.wr-list-progress{padding:8px;font-size:var(--font-ui-smaller);color:var(--text-muted)}
+.wr-row-meta{overflow-wrap:anywhere}

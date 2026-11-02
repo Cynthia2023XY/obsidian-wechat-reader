@@ -8,14 +8,24 @@ import { missingSubscriptionMessage, subscriptionForFeed } from '../collector/su
 import { AccountModal, LoginModal, SubscribeModal } from './wechat-modals';
 /** 保留一期视图 ID，使原有工作区可以平滑恢复 */
 export const VIEW_TYPE = 'wechat-reader-view';
-/** 右侧简约订阅树，文章点击后交给独立阅读弹窗 */
+/** 侧栏互斥的聚合入口或单个来源范围 */
+type ReaderScope = 'all' | 'unread' | 'read' | 'starred' | `feed:${string}`;
+/** 每个浏览范围独立保留的滚动锚点 */
+interface ListPosition { top: number; anchor?: string; offset: number }
+/** 聚合列表每次追加的文章数量 */
+const PAGE_SIZE = 50;
+/** 聚合文章侧栏，正文使用独立阅读弹窗 */
 export class ReaderView extends ItemView {
-    /** 展开的源不随后台刷新重置 */
-    private expanded = new Set<string>();
-    /** 每个源已显示的文章条数 */
+    /** 来源导航独立于文章结果展开 */
+    private sourcesExpanded = false;
+    /** 各浏览范围已展示的文章条数 */
     private limits = new Map<string, number>();
     /** 当前聚合筛选条件 */
-    private filter = 'all';
+    private filter: ReaderScope = 'all';
+    /** 上次渲染的范围用于切换前保存位置 */
+    private renderedScope: ReaderScope = 'all';
+    /** 各范围的滚动位置只在当前视图生命周期内保留 */
+    private positions = new Map<ReaderScope, ListPosition>();
     /** 当前被选中的文章 */
     private selected = '';
     /** 生命周期标识阻止关闭后更新 DOM */
@@ -56,66 +66,135 @@ export class ReaderView extends ItemView {
     }
     /** 侧栏只接收本地变化通知，无闲置网络轮询。 */
     async onClose(): Promise<void> { this.closed = true; }
-    /** 源状态变动时更新列表，阅读弹窗不受影响 */
+    /** 用文章锚点保存位置，后台插入和阅读移除不让列表跳回顶部 */
+    private rememberPosition(): void {
+        // 当前 DOM 仍属于上次渲染的范围。
+        const results = this.list.querySelector<HTMLElement>('.wr-results');
+        if (!results) return;
+        // 记录视口顶部的文章及相对偏移，缺失时回退绝对滚动值。
+        const rows = Array.from(results.querySelectorAll<HTMLElement>('[data-article-id]'));
+        // 当前视口顶部仍可见的文章锚点。
+        const anchor = rows.find(row => row.offsetTop + row.offsetHeight > results.scrollTop);
+        this.positions.set(this.renderedScope, { top: results.scrollTop, anchor: anchor?.dataset.articleId, offset: (anchor?.offsetTop || 0) - results.scrollTop });
+    }
+    /** 仅重建导航和结果的展示内容，不修改正在阅读的固定队列 */
     render(): void {
-        if (!this.list || this.closed)
-            return;
+        if (!this.list || this.closed) return;
+        this.rememberPosition();
+        // 更新后将焦点还给同一个导航或结果控件。
+        const focused = this.contentEl.ownerDocument.activeElement instanceof HTMLElement ? this.contentEl.ownerDocument.activeElement : null;
+        // 重绘后需要恢复的控件身份。
+        const focusKey = focused && this.list.contains(focused) ? focused.dataset.navKey || focused.dataset.articleId : undefined;
+        // 来源导航单独保留滚动位置。
+        const sourceScroll = this.list.querySelector('.wr-source-list')?.scrollTop || 0;
+        // 当前库中可浏览的全部订阅源。
+        const feeds = this.plugin.service.feeds();
+        // 文章来源名称与范围校验共用的订阅索引。
+        const feedById = new Map(feeds.map(feed => [feed.id, feed]));
+        if (this.filter.startsWith('feed:') && !feedById.has(this.filter.slice(5))) this.filter = 'all';
+        // 一次读取全集，按真实时间排序，未知时间置后并以身份稳定排序。
+        const all = this.plugin.service.articles().map(article => ({ article, time: publishedTime(article.publishedAt) ?? -Infinity }))
+            .sort((a, b) => (a.time === b.time ? 0 : a.time > b.time ? -1 : 1) || a.article.id.localeCompare(b.article.id)).map(item => item.article);
+        // 每个来源的未读数量不受当前筛选影响。
+        const unreadByFeed = new Map<string, number>();
+        // 统一阅读服务判定的已读文章身份。
+        const readIds = new Set<string>();
+        // 当前库收藏的文章身份集合。
+        const starredIds = new Set<string>();
+        for (const article of all) {
+            if (this.plugin.readingState.isRead(article)) readIds.add(article.id);
+            else unreadByFeed.set(article.accountId, (unreadByFeed.get(article.accountId) || 0) + 1);
+            if (this.plugin.data.reading[article.id]?.starred) starredIds.add(article.id);
+        }
         this.list.empty();
-        this.status.setText(this.plugin.service.lastError || (this.plugin.service.feeds().length ? '' : '添加 RSS/Atom，或从 OPML 导入订阅。'));
-        // 聚合未读与收藏基于当前库的阅读状态。
-        const all = this.plugin.service.articles();
-        // 聚合按钮不修改具体订阅源身份。
+        this.status.setText(this.plugin.service.lastError || (feeds.length ? '' : '添加 RSS/Atom，或从 OPML 导入订阅。'));
+        // 聚合入口不受来源选择和已加载条数影响。
         const aggregate = this.list.createDiv({ cls: 'wr-aggregate' });
-        for (const [id, label, icon] of [['all', '全部文章', 'files'], ['unread', '未读', 'circle'], ['read', '已读', 'check-check'], ['starred', '收藏', 'star']]) {
-            // 计数只使用当前筛选对应的文章集合。
-            const count = ['all', 'read'].includes(id) ? 0 : all.filter(article => id === 'all' || id === 'unread' && !this.plugin.readingState.isRead(article) || id === 'starred' && this.plugin.data.reading[article.id]?.starred).length;
-            // 按钮被选中后不清除各源的展开状态。
+        // 聚合入口的范围、名称和图标配置。
+        const entries: Array<[ReaderScope, string, string]> = [['all', '全部文章', 'files'], ['unread', '未读', 'circle'], ['read', '已读', 'check-check'], ['starred', '收藏', 'star']];
+        for (const [id, label, icon] of entries) {
+            // 入口徽标统计全部匹配文章。
+            const count = id === 'unread' ? all.length - readIds.size : id === 'starred' ? starredIds.size : 0;
+            // 可点击的导航或文章操作入口。
             const button = this.listButton(aggregate, label, icon, count, this.filter === id);
+            button.dataset.navKey = id;
+            button.setAttribute('aria-pressed', String(this.filter === id));
             button.addEventListener('click', () => { this.filter = id; this.render(); });
         }
-        // 相同分组下可包含任意数量的公众号与普通源。
-        const folders = new Map<string, Feed[]>();
-        for (const feed of this.plugin.service.feeds()) {
-            const folder = feed.folder || '未分组';
-            if (!folders.has(folder))
-                folders.set(folder, []);
-            folders.get(folder)!.push(feed);
-        }
-        for (const [folder, feeds] of folders) {
-            // 分组标题仅用于组织，不参与缓存键。
-            const group = this.list.createDiv({ cls: 'wr-folder' });
-            const heading = group.createDiv({ cls: 'wr-folder-title', text: folder });
-            heading.addEventListener('contextmenu', event => { event.preventDefault(); new Menu().addItem(item => item.setTitle('标记为已读').setIcon('check-check').onClick(() => this.markRead(feeds.flatMap(feed => this.plugin.service.articles(feed.id).map(article => article.id))))).showAtMouseEvent(event); });
+        // 来源只用于选择范围，文章统一出现在下方结果区。
+        const sources = this.list.createDiv({ cls: 'wr-sources' });
+        // 来源导航的展开和收起入口。
+        const toggle = this.listButton(sources, '订阅源', this.sourcesExpanded ? 'chevron-down' : 'chevron-right', 0, false);
+        toggle.dataset.navKey = 'sources';
+        toggle.setAttribute('aria-expanded', String(this.sourcesExpanded));
+        toggle.addEventListener('click', () => { this.sourcesExpanded = !this.sourcesExpanded; this.render(); });
+        if (this.sourcesExpanded) {
+            // 来源导航独立滚动，不挤占完整文章区域。
+            const sourceList = sources.createDiv({ cls: 'wr-source-list' });
+            // 按用户分组组织来源导航。
+            const folders = new Map<string, Feed[]>();
             for (const feed of feeds) {
-                // 未读筛选即时更新，但弹窗导航队列已冻结。
-                const articles = this.plugin.service.articles(feed.id).filter(article => this.filter === 'all' || this.filter === 'unread' && !this.plugin.readingState.isRead(article) || this.filter === 'read' && !!this.plugin.readingState.isRead(article) || this.filter === 'starred' && this.plugin.data.reading[article.id]?.starred);
-                // 源未读徽标不受当前筛选限制。
-                const unread = this.plugin.service.articles(feed.id).filter(article => !this.plugin.readingState.isRead(article)).length;
-                // 当前目录的树形行保留紧凑排版。
-                const block = group.createDiv({ cls: 'wr-feed-block' });
-                // 任意可用源都能展开，已停用源仍可阅读历史。
-                const button = this.listButton(block, feed.title, this.expanded.has(feed.id) ? 'chevron-down' : 'chevron-right', unread, false);
-                button.dataset.feedId = feed.id;
-                button.classList.add('wr-feed-title');
-                button.title = feed.error || `${feed.kind === 'wechat' ? '微信公众号' : 'RSS/Atom'}${feed.enabled ? '' : ' · 自动刷新已暂停'}`;
-                button.addEventListener('click', () => { if (this.expanded.has(feed.id))
-                    this.expanded.delete(feed.id);
-                else
-                    this.expanded.add(feed.id); this.render(); });
-                button.addEventListener('contextmenu', event => { event.preventDefault(); this.feedMenu(feed, event); });
-                if (feed.error)
-                    block.createDiv({ cls: 'wr-feed-error', text: feed.error });
-                if (!this.expanded.has(feed.id))
-                    continue;
-                // 每个源分页展示，避免大量历史撑满侧栏。
-                const limit = this.limits.get(feed.id) || 40;
-                for (const article of articles.slice(0, limit))
-                    this.articleRow(block, article, articles.map(item => item.id));
-                if (articles.length > limit)
-                    this.textButton(block, '加载更多…', () => { this.limits.set(feed.id, limit + 40); this.render(); });
-                if (!articles.length)
-                    block.createDiv({ cls: 'wr-empty-feed', text: '暂无符合条件的文章' });
+                // 未指定分组的来源归入默认分组。
+                const folder = feed.folder || '未分组';
+                if (!folders.has(folder)) folders.set(folder, []);
+                folders.get(folder)!.push(feed);
             }
+            for (const [folder, members] of folders) {
+                // 同一分组的来源入口容器。
+                const group = sourceList.createDiv({ cls: 'wr-folder' });
+                // 当前分组或文章范围的可见标题。
+                const heading = group.createDiv({ cls: 'wr-folder-title', text: folder });
+                heading.addEventListener('contextmenu', event => { event.preventDefault(); new Menu().addItem(item => item.setTitle('标记为已读').setIcon('check-check').onClick(() => this.markRead(all.filter(article => members.some(feed => feed.id === article.accountId)).map(article => article.id)))).showAtMouseEvent(event); });
+                for (const feed of members) {
+                    // 来源入口对应的独立浏览范围。
+                    const scope: ReaderScope = `feed:${feed.id}`;
+                    // 可点击的导航或文章操作入口。
+                    const button = this.listButton(group, feed.title, 'rss', unreadByFeed.get(feed.id) || 0, this.filter === scope);
+                    button.dataset.feedId = feed.id;
+                    button.dataset.navKey = scope;
+                    button.setAttribute('aria-pressed', String(this.filter === scope));
+                    button.title = feed.error || `${feed.kind === 'wechat' ? '微信公众号' : 'RSS/Atom'}${feed.enabled ? '' : ' · 自动刷新已暂停'}`;
+                    button.addEventListener('click', () => { this.filter = scope; this.render(); });
+                    button.addEventListener('contextmenu', event => { event.preventDefault(); this.feedMenu(feed, event); });
+                }
+            }
+            if (!feeds.length) sourceList.createDiv({ cls: 'wr-empty-feed', text: '暂无订阅源' });
+            sourceList.scrollTop = sourceScroll;
+        }
+        // 来源范围不会继承聚合筛选，停用源的历史仍可阅读。
+        const activeFeed = this.filter.startsWith('feed:') ? feedById.get(this.filter.slice(5)) : undefined;
+        // 当前范围内的完整结果，用于分页与总量统计。
+        const articles = all.filter(article => this.filter === 'all' || this.filter === 'unread' && !readIds.has(article.id) || this.filter === 'read' && readIds.has(article.id) || this.filter === 'starred' && starredIds.has(article.id) || activeFeed?.id === article.accountId);
+        // 向用户明确当前文章列表的范围。
+        const title = activeFeed?.title || entries.find(([id]) => id === this.filter)?.[1] || '全部文章';
+        // 当前分组或文章范围的可见标题。
+        const heading = this.list.createEl('h3', { cls: 'wr-results-heading', text: title, attr: { tabindex: '-1' } });
+        if (activeFeed?.error) this.list.createDiv({ cls: 'wr-feed-error', text: activeFeed.error });
+        // 独立滚动的文章结果容器。
+        const results = this.list.createDiv({ cls: 'wr-results', attr: { role: 'region', 'aria-label': `${title}列表` } });
+        // 当前范围保留的已加载文章上限。
+        const limit = this.limits.get(this.filter) || PAGE_SIZE;
+        // 本次实际渲染的文章切片。
+        const visible = articles.slice(0, limit);
+        // 阅读弹窗只接收当前已展示文章的身份。
+        const queue = visible.map(article => article.id);
+        for (const article of visible) this.articleRow(results, article, queue, feedById.get(article.accountId)?.title || '未知来源');
+        if (!articles.length) results.createDiv({ cls: 'wr-empty-feed', text: this.filter === 'unread' ? '暂无未读文章' : this.filter === 'read' ? '暂无已读文章' : this.filter === 'starred' ? '暂无收藏文章' : '暂无文章' });
+        results.createDiv({ cls: 'wr-list-progress', text: `已显示 ${visible.length} / ${articles.length} 篇` });
+        if (articles.length > limit) {
+            this.textButton(results, '加载更多…', () => { this.limits.set(this.filter, limit + PAGE_SIZE); this.render(); });
+            results.querySelector<HTMLButtonElement>('.wr-text-button')!.dataset.navKey = 'more';
+        }
+        // 原锚点仍存在时保持视觉位置，否则保留原滚动值并交由浏览器限幅。
+        const position = this.positions.get(this.filter);
+        // 当前视口顶部仍可见的文章锚点。
+        const anchor = Array.from(results.querySelectorAll<HTMLElement>('[data-article-id]')).find(row => row.dataset.articleId === position?.anchor);
+        results.scrollTop = position ? anchor ? anchor.offsetTop - position.offset : position.top : 0;
+        this.renderedScope = this.filter;
+        if (focusKey) {
+            // 重绘或关闭弹窗后应恢复焦点的控件。
+            const target = Array.from(this.list.querySelectorAll<HTMLElement>('[data-nav-key],[data-article-id]')).find(element => element.dataset.navKey === focusKey || element.dataset.articleId === focusKey);
+            (target || heading).focus({ preventScroll: true });
         }
     }
     /** 按需更新公众号状态，普通 RSS 仍可独立操作 */
@@ -137,7 +216,7 @@ export class ReaderView extends ItemView {
         }
     }
     /** 文章行仅使用文本，标题和日期不执行远端 HTML */
-    private articleRow(parent: HTMLElement, article: Article, queue: string[]): void {
+    private articleRow(parent: HTMLElement, article: Article, queue: string[], source: string): void {
         // 当前库的已读状态决定标题字重和未读点。
         const read = this.plugin.readingState.isRead(article);
         // 无效时间不能参与历史基准或显示为有效日期。
@@ -147,8 +226,24 @@ export class ReaderView extends ItemView {
         button.dataset.articleId = article.id;
         button.createSpan({ cls: 'wr-unread-dot', text: read ? '' : '•' });
         button.createSpan({ cls: 'wr-row-title', text: article.title });
-        button.createSpan({ cls: 'wr-row-meta', text: `${published !== undefined ? new Date(published).toLocaleDateString() : '发布时间未知'} · ${read ? '已读' : '未读'}${article.state === 'evicted' ? ' · 正文已清理' : article.state === 'ready' ? '' : ' · 正文获取失败'}` });
-        button.addEventListener('click', () => { this.selected = article.id; new ArticleReaderModal(this.plugin, queue, article.id, () => { this.render(); this.list.querySelector<HTMLButtonElement>(`[data-article-id="${article.id}"]`)?.focus(); }).open(); this.render(); });
+        button.createSpan({ cls: 'wr-row-meta', text: `${source} · ${published !== undefined ? new Date(published).toLocaleDateString() : '发布时间未知'} · ${read ? '已读' : '未读'}${article.state === 'evicted' ? ' · 正文已清理' : article.state === 'ready' ? '' : ' · 正文获取失败'}` });
+        button.addEventListener('click', () => {
+            this.selected = article.id;
+            new ArticleReaderModal(this.plugin, queue, article.id, currentId => {
+                if (this.closed) return;
+                this.selected = currentId || article.id;
+                this.render();
+                // 文章被筛掉时按原阅读位置寻找附近条目，空列表返回标题。
+                // 当前范围内仍可接收焦点的文章。
+                const rows = Array.from(this.list.querySelectorAll<HTMLButtonElement>('[data-article-id]'));
+                // 按最后阅读位置寻找剩余的相邻文章。
+                const index = Math.max(0, queue.indexOf(this.selected));
+                // 原文章已移除时优先后续文章，再回退到列表末尾。
+                const target = rows.find(row => row.dataset.articleId === this.selected) || rows.find(row => queue.indexOf(row.dataset.articleId || '') >= index) || rows[rows.length - 1];
+                (target || this.list.querySelector<HTMLElement>('.wr-results-heading'))?.focus({ preventScroll: true });
+            }).open();
+            this.render();
+        });
         button.addEventListener('contextmenu', event => { event.preventDefault(); new Menu().addItem(item => item.setTitle(read ? '标记为未读' : '标记为已读').setIcon('check').onClick(() => this.markRead([article.id], !read))).showAtMouseEvent(event); });
     }
     /** 一次批量保存，分页和筛选不影响目标范围。 */

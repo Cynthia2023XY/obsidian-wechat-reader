@@ -50,7 +50,7 @@ export class ArticleReaderModal extends Modal {
     /** 收藏状态按钮 */
     private star!: HTMLButtonElement;
     /** 当前上下文和关闭后恢复焦点的回调 */
-    constructor(private plugin: WeChatReaderPlugin, ids: string[], initialId: string, private done: () => void) { super(plugin.app); plugin.register(() => { if (!this.closed) this.close(); }); this.queue = [...ids]; this.index = Math.max(0, this.queue.indexOf(initialId)); }
+    constructor(private plugin: WeChatReaderPlugin, ids: string[], initialId: string, private done: (currentId?: string) => void) { super(plugin.app); plugin.register(() => { if (!this.closed) this.close(); }); this.queue = [...ids]; this.index = Math.max(0, this.queue.indexOf(initialId)); }
     /** 创建原生模态布局与独立键盘作用域 */
     onOpen(): void {
         this.modalEl.addClass('wr-article-modal');
@@ -94,7 +94,7 @@ export class ArticleReaderModal extends Modal {
         void this.show();
     }
     /** 关闭释放图片资源，原生 Modal 自动退出键盘作用域 */
-    onClose(): void { this.closed = true; this.sequence++; this.release(); this.contentEl.empty(); this.done(); }
+    onClose(): void { this.closed = true; this.sequence++; this.release(); this.contentEl.empty(); this.done(this.queue[this.index]); }
     /** 输入或其他弹窗获得焦点时不劫持方向键 */
     private ignoreKey(event: KeyboardEvent): boolean {
         // 长按不产生无限待处理切换，输入法组合也应交还原生控件。
