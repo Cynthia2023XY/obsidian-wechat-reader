@@ -2,6 +2,17 @@
 
 Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公众号，在原生弹窗中阅读、切换、收藏与归档。界面直接使用 Obsidian 主题变量，自动跟随深色、浅色主题。
 
+## 首次安装前请注意
+
+**从 Obsidian 社区插件页面首次安装，不会一起下载公众号采集引擎。** 标准插件文件可直接使用普通 RSS/Atom；首次使用微信公众号功能，还需要手动安装完整包中的 `engine/`。
+
+| 安装方式 | 普通 RSS/Atom | 微信公众号 |
+| --- | --- | --- |
+| 社区插件页面安装，或只安装三个标准插件文件 | 可直接使用 | 需另外下载完整包并安装 `engine/` |
+| 下载完整 ZIP，按完整目录安装 | 可使用 | 已包含引擎，无需另行下载 |
+
+引擎安装完成后，插件会在需要时自动启动它，用户无需手动运行，也无需另装 Node 或 Python。当前完整包仅支持 macOS Apple Silicon（M 系列芯片）。
+
 ## 许可与运行说明
 
 本插件采用 [MIT License](LICENSE)。旧版采集实现参考并保留 [wechat-mp-tools](https://github.com/x554960766/wechat-mp-tools) 的 MIT 许可；第三方运行依赖的许可随完整包附带。
@@ -12,12 +23,22 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 
 ## 安装和使用
 
-1. 解压 `dist/wechat-reader-0.4.0-macos-arm64.zip`，将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。
+1. 使用公众号功能时，从 [1.0.0 发布页](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.0.0) 下载 `wechat-reader-1.0.0-macos-arm64.zip`（不要下载 Source code 源码包），解压后将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。已安装标准插件时，补充或覆盖完整包文件，并保留原有 `data.json` 和 `cache/`。仅使用 RSS/Atom 时，可在社区插件页面安装（目录中可用时），或手动安装 `main.js`、`manifest.json`、`styles.css`。自定义配置目录的笔记库请使用实际路径。
 2. 点击 RSS 图标或执行“打开 RSS 阅读侧栏”。首次安装和一期升级默认停靠**右侧栏**，后续保留用户拖动的布局。
 3. 点击 `+` 添加 RSS/Atom XML 地址。菜单支持 OPML 导入预览和导出；重复 URL 保留原源，同名源可分别放在不同分组。右键源可以修改名称、分组、刷新周期或停止自动刷新；历史缓存和阅读状态保留。
 4. 点击文章打开原生阅读弹窗。`← / →` 切换前后文章，`↑ / ↓` 滚动正文，`Esc` 关闭；输入框、输入法和其他弹窗不受影响。打开时冻结当前已展示的文章队列，标记已读后不会跳篇，首尾不循环。
 5. 顶部“全部文章 / 未读 / 已读 / 收藏”直接展示跨来源文章，按发布时间倒序排列，文章注明来源；展开“订阅源”可切换到单个来源。每个列表默认显示 50 篇，底部“加载更多”每次追加 50 篇，数量统计全部匹配文章；切换入口保留本次视图内的加载条数和滚动位置。打开正文、摘要或失败提示后自动已读；后台预取和采集失败不会自行标记。文章、订阅源和分组右键支持标记为已读，右上角可全部标为已读并撤销；“全部文章”和“已读”不显示数字。已读、收藏、归档关联仅属于当前笔记库。
 6. 弹窗内“保存为 MD”将正文和本地图片保存至设置目录，不切走阅读弹窗；重复保存保留原笔记及用户编辑。正文版本更新时可确认另存副本。“复制文章”复制清理后的 Markdown 和原文链接，图片使用公开地址或文字占位，不复制本机凭据。
+
+## 更新方式与原因
+
+Obsidian 的标准更新机制只下载 `main.js`、`manifest.json` 和可选的 `styles.css`，不会解压 Release 完整包并安装 `engine/`。参见 [官方发布说明](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)。
+
+- 仅修改界面的版本，通常在插件页面更新即可，以发行说明为准。
+- 修改公众号采集内核的版本（包括 **1.0.0**），需要同时下载该版本完整包并替换 `engine/`。关闭所有使用该采集程序的笔记库，等待采集结束和程序退出后再替换，随后重新打开 Obsidian。同机多个库均使用公众号时，需要逐一更新相关库。保留原有设置、缓存和归档笔记。
+- 插件页面显示新版本号，只代表标准插件文件已更新，不能证明独立引擎也已更新。插件不会自动下载或安装引擎。
+
+这样设计是为了随包提供固定 Node 环境，并让多个笔记库共享 SQLite、采集队列与文章存储；普通 RSS/Atom 则不必启动公众号程序。额外安装步骤是当前独立引擎架构的取舍，并非所有 Obsidian 插件都需要如此安装。
 
 ## 订阅配置
 
@@ -69,7 +90,7 @@ npm run test:package
 WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 ```
 
-`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.4.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；公众号功能需要 0.3.0 或更新版本完整包中的 `engine/`。
+`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 1.0.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；1.0.0 的公众号功能应安装本版本完整包中的 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。
 

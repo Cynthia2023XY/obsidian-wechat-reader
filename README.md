@@ -6,9 +6,16 @@ WeChat Reader is a desktop RSS and Atom reader for Obsidian. Manage feeds in the
 
 ### Installation
 
-Download `main.js`, `manifest.json`, and `styles.css` from the same GitHub release. Place them in `<vault configuration folder>/plugins/wechat-reader/`, restart Obsidian, and enable WeChat Reader in Community plugins. The configuration folder is usually `.obsidian`, but can be customized.
+**First-time installation from Obsidian Community plugins does not include the WeChat companion engine.** RSS and Atom work with the standard plugin files. To use WeChat subscriptions, you must also manually install `engine/` from the full package—even on your first installation.
 
-Standard release assets support ordinary RSS and Atom feeds. WeChat subscriptions additionally require the manually installed companion `engine/` from the macOS Apple Silicon full package. The plugin never downloads or installs itself or its dependencies.
+- **RSS / Atom only:** install through Community plugins when available, or download `main.js`, `manifest.json`, and `styles.css` from the same release. For manual installation, place them in `<vault configuration folder>/plugins/wechat-reader/`, restart Obsidian, and enable the plugin. The configuration folder is usually `.obsidian`.
+- **WeChat subscriptions (macOS Apple Silicon):** download `wechat-reader-1.0.0-macos-arm64.zip` from the [1.0.0 release](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.0.0), extract it, and install the complete `wechat-reader/` folder, including `engine/`, under your vault's plugin directory. Download the full package asset, not GitHub's Source code archive. If the standard plugin is already installed, add or replace the package files while preserving your existing `data.json` and `cache/`.
+
+Once installed, the companion starts automatically when WeChat functionality needs it; users do not need to run it manually or install Node/Python separately. The current full package supports macOS Apple Silicon only.
+
+**Updates:** Obsidian's standard updater downloads only `main.js`, `manifest.json`, and optional `styles.css`; it does not install `engine/` from the ZIP attachment. For releases that change the companion, including 1.0.0, also manually update `engine/` from that release's full package. Close all vaults using the companion and wait for collection to finish and the companion to stop before replacing it, then reopen Obsidian. Update every vault that uses WeChat on the same computer. Preserve settings, caches, and archived notes. UI-only releases normally require only the standard plugin update; check each release's instructions.
+
+The separate companion provides a bundled Node environment, shared SQLite storage, and a collection queue across vaults. This architecture requires an additional installation step because Obsidian's [standard release mechanism](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) distributes only the standard plugin files. The plugin does not automatically download or install the companion or its dependencies.
 
 ### Usage
 
