@@ -24,14 +24,15 @@ await writeFile(join(directory, 'engine.json'), JSON.stringify(metadata, null, 2
 const packageDirectory = 'dist/wechat-reader';
 await rm(packageDirectory, { recursive: true, force: true });
 await mkdir(packageDirectory, { recursive: true });
-for (const name of ['main.js', 'manifest.json', 'styles.css', 'README.md', 'LICENSE'])
+for (const name of ['main.js', 'manifest.json', 'styles.css', 'README.md', 'README.en.md', 'README.zh-CN.md', 'LICENSE'])
     await copyFile(name, join(packageDirectory, name));
 await cp('dist/engine', join(packageDirectory, 'engine'), { recursive: true });
+await cp('docs', join(packageDirectory, 'docs'), { recursive: true });
 await mkdir(join(packageDirectory, 'licenses'), { recursive: true });
 await copyFile('companion/upstream/LICENSE', join(packageDirectory, 'licenses/wechat-mp-tools-MIT.txt'));
 await copyFile(join(dirname(dirname(process.execPath)), 'LICENSE'), join(packageDirectory, 'licenses/Node-LICENSE.txt'));
 /** 运行包同时附带前端及独立内核所使用依赖的许可证 */
-const packages = new Set(['dompurify', 'turndown', ...Object.keys(runtimeBuild.metafile.inputs).map(path => path.match(/node_modules\/([^/]+)/)?.[1]).filter(Boolean)]);
+const packages = new Set(['dompurify', 'turndown', 'fflate', ...Object.keys(runtimeBuild.metafile.inputs).map(path => path.match(/node_modules\/([^/]+)/)?.[1]).filter(Boolean)]);
 for (const name of packages) {
     // npm 包的不同许可证文件名统一复制到许可证目录。
     for (const candidate of ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license', 'license.md']) {

@@ -1,3 +1,6 @@
+import { EngineInstaller } from './runtime/engine-installer';
+import { EngineInstallModal } from './views/engine-install-modal';
+import { engineSupported, ENGINE_PACKAGE } from './runtime/engine-package';
 import { CacheModal } from './views/cache-modal';
 import { Plugin, FileSystemAdapter, Notice, PluginSettingTab, Setting, WorkspaceLeaf, type SettingDefinitionItem } from 'obsidian';
 import { homedir } from 'node:os';
@@ -18,6 +21,8 @@ export default class WeChatReaderPlugin extends Plugin {
     data: ReaderData = { archiveFolder: 'RSS阅读', reading: {}, feeds: [], wechatEnabled: false, wechatFeeds: [], readerModalWidth: DEFAULT_READER_WIDTH };
     /** 公众号专用运行时按需启动，普通 RSS 不依赖此程序 */
     runtime!: RuntimeManager;
+    engineInstaller!: EngineInstaller;
+    openEngineInstaller(done?: () => void): void { new EngineInstallModal(this.app, this.engineInstaller, this.directory, () => { this.runtime.resetRetries(); done?.(); }).open(); }
     readingState!: ReadingStore;
     /** 来源无关的阅读和订阅服务 */
     service!: FeedService;
@@ -42,6 +47,7 @@ export default class WeChatReaderPlugin extends Plugin {
             return;
         }
         this.directory = join(this.app.vault.adapter.getBasePath(), this.manifest.dir || `${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+        this.engineInstaller = new EngineInstaller(this.directory);
         this.runtime = new RuntimeManager(this.directory, message => new Notice(message));
         this.service = new FeedService(this.data, this.directory, () => this.persist(), () => this.runtime.connect(), { root: join(homedir(), 'Library/Application Support/Obsidian WeChat Reader'), session: action => this.runtime.session(() => action()) });
         const settings = new ReaderSettings(this);
@@ -134,7 +140,7 @@ export default class WeChatReaderPlugin extends Plugin {
         new Notice(`订阅配置已保存到笔记库根目录：${path}`);
     }
     /** 关闭订阅计时器并释放当前库的公众号租约 */
-    onunload(): void { this.service?.dispose(); void this.runtime?.dispose(); }
+    onunload(): void { this.engineInstaller?.dispose(); this.service?.dispose(); void this.runtime?.dispose(); }
 }
 /** 原生设置与弹窗均使用 Obsidian 控件自动跟随深浅主题 */
 class ReaderSettings extends PluginSettingTab {
@@ -145,7 +151,7 @@ class ReaderSettings extends PluginSettingTab {
     constructor(private plugin: WeChatReaderPlugin) { super(plugin.app, plugin); }
     /** 让新版设置搜索索引归档、阅读及公众号选项 */
     getSettingDefinitions(): SettingDefinitionItem[] {
-        return [{ name: 'RSS 阅读', aliases: ['Markdown 归档目录', '阅读弹窗宽度', '启用微信公众号', '公众号服务运行方式', '订阅配置'], render: setting => {
+        return [{ name: 'RSS 阅读', aliases: ['安装公众号引擎', 'Markdown 归档目录', '阅读弹窗宽度', '启用微信公众号', '公众号服务运行方式', '订阅配置'], render: setting => {
             // 宿主设置行默认横向排列，整页设置需要独立的纵向容器。
             setting.settingEl.empty();
             setting.settingEl.addClass('wr-settings-host');
@@ -176,7 +182,17 @@ class ReaderSettings extends PluginSettingTab {
                     new Notice('保存弹窗宽度失败，请重试');
                 }
             }));
+        const engine = new Setting(container).setName('公众号引擎（可选）').setDesc('检查本地安装状态，不会自动下载。普通 RSS/Atom 无需安装。');
+        engine.addButton(button => button.setButtonText('安装公众号引擎').setDisabled(!engineSupported()).onClick(() => this.plugin.openEngineInstaller(() => this.update())));
+        void this.plugin.engineInstaller.status().then(status => {
+            engine.setDesc(!engineSupported() ? '当前引擎仅支持 macOS Apple Silicon，普通 RSS/Atom 不受影响。' : status === 'missing' ? '尚未安装。点击后可查看下载来源、大小和安装位置，再确认下载。' : status === 'managed' ? `已安装引擎 ${ENGINE_PACKAGE.version}；需要修复时可主动重新安装。` : '已检测到完整包引擎；可主动安装本插件指定版本，不会自动更新。');
+        });
         new Setting(container).setName('启用微信公众号').setDesc('普通 RSS 不需要开启。公众号能力使用独立 TS 运行时。').addToggle(toggle => toggle.setValue(this.plugin.data.wechatEnabled).onChange(async (value) => { if (value) {
+            if (await this.plugin.engineInstaller.status() === 'missing') {
+                toggle.setValue(false);
+                this.plugin.openEngineInstaller();
+                return;
+            }
             try {
                 await this.plugin.service.enableWeChat();
                 await this.plugin.runtime.setPersistent(this.plugin.data.runtimeMode === 'persistent');

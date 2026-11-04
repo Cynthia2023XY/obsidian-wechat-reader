@@ -329,7 +329,9 @@ export class ReaderView extends ItemView {
     /** 顶部操作菜单保留公众号登录和 OPML 入口 */
     private menu(event: MouseEvent): void {
         new Menu().addItem(item => item.setTitle('导入 OPML').setIcon('import').onClick(() => new ImportOpmlModal(this.plugin).open()))
+            .addItem(item => item.setTitle('安装公众号引擎').setIcon('download').onClick(() => this.plugin.openEngineInstaller()))
             .addItem(item => item.setTitle('微信读书登录').setIcon('qr-code').onClick(async () => { try {
+            if (await this.plugin.engineInstaller.status() === 'missing') { this.plugin.openEngineInstaller(); return; }
             await this.plugin.service.enableWeChat();
             new LoginModal(this.plugin).open();
         }

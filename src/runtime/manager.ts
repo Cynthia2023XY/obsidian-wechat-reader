@@ -1,3 +1,4 @@
+import { engineExecutable } from './engine-path';
 import { spawn } from 'node:child_process';
 import { readFile, access, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -81,7 +82,8 @@ export class RuntimeManager {
     return this.pending;
   }
   /** 明确重试时重新允许有限次数自动恢复 */
-  async retry(): Promise<CollectorProvider> { this.restartAttempts = 0; return this.connect(); }
+  resetRetries(): void { this.restartAttempts = 0; }
+  async retry(): Promise<CollectorProvider> { this.resetRetries(); return this.connect(); }
   /** 从私有发现文件验证已有实例 */
   private async discover(): Promise<LocalCollectorClient | undefined> {
     this.stoppingInstance = false;
@@ -124,8 +126,8 @@ export class RuntimeManager {
     }
     if (!client) {
       // 安装包附属程序与插件放在同一目录。
-      const executable = join(this.pluginDirectory, 'engine', 'wechat-reader-companion', 'wechat-reader-companion');
-      await access(executable).catch(() => { throw new Error('缺少采集附属程序，请安装包含 engine 目录的完整内测包'); });
+      const executable = await engineExecutable(this.pluginDirectory);
+      await access(executable).catch(() => { throw new Error('缺少公众号引擎，请在 RSS 阅读设置中点击安装公众号引擎'); });
       // 不继承用户代理注入或 Python 路径，运行环境只来自当前进程基础变量。
       const child = spawn(executable, ['--root', join(homedir(), 'Library/Application Support/Obsidian WeChat Reader')], { detached: true, stdio: 'ignore', shell: false, env:{HOME:homedir(),PATH:'/usr/bin:/bin:/usr/sbin:/sbin',...(process.env.TMPDIR?{TMPDIR:process.env.TMPDIR}:{})} });
       // 子进程由租约管理，禁用一个插件不会直接终止其他库的采集。

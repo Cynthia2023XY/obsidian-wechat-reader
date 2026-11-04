@@ -6,18 +6,24 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 
 ## 首次安装前请注意
 
-**从 Obsidian 社区插件页面首次安装，不会一起下载公众号采集引擎。** 标准插件文件可直接使用普通 RSS/Atom；首次使用微信公众号功能，还需要手动安装完整包中的 `engine/`。
+**普通 RSS/Atom 安装即用，不需要公众号引擎。公众号引擎由用户主动选择安装，插件启动或普通刷新不会自动下载。**
+
+> 1.1.0 新增插件内安装入口。旧版 1.0.0 没有此按钮，请先更新插件，或使用完整 ZIP 手动安装。
 
 | 安装方式 | 普通 RSS/Atom | 微信公众号 |
 | --- | --- | --- |
-| 社区插件页面安装，或只安装三个标准插件文件 | 可直接使用 | 需另外下载完整包并安装 `engine/` |
+| 社区插件页面安装，或只安装三个标准插件文件 | 可直接使用 | 1.1.0 可在设置中点击“安装公众号引擎”，确认后下载 |
 | 下载完整 ZIP，按完整目录安装 | 可使用 | 已包含引擎，无需另行下载 |
 
-引擎安装完成后，插件会在需要时自动启动它，用户无需手动运行，也无需另装 Node 或 Python。当前完整包仅支持 macOS Apple Silicon（M 系列芯片）。
+引擎安装入口在“设置 → RSS 阅读 → 公众号引擎（可选）”和侧栏更多菜单。确认前展示 GitHub 来源、固定版本、约 45.5 MiB 下载量及安装位置；确认后校验 SHA-256、解压并验证随包 Node。支持取消、失败重试和重新安装修复。安装不自动开启公众号功能，完成后需开启并扫码登录。当前仅支持 macOS Apple Silicon（M 系列芯片），无需另装 Node/Python。
+
+安装包固定为已发布的 1.0.0 完整包，仅提取引擎和许可，不覆盖用户设置、缓存或标准插件。安装使用本库插件目录下的 `wechat-engine-<随机标识>/`，`wechat-engine.json` 记录当前选择；兼容原有 `engine/` 手动安装。成功切换后，正在运行的共享采集实例继续原任务，下次新启动使用新安装。旧版本目录保留，以保护可能仍运行的进程；重新安装会额外占用约 150 MiB，请避免反复安装。
+
+用户主动下载可执行依赖是否符合社区目录政策，尚未获得官方确认；本实现不代表已经通过审核。
 
 ## 安装和使用
 
-1. 使用公众号功能时，从 [1.0.0 发布页](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.0.0) 下载 `wechat-reader-1.0.0-macos-arm64.zip`（不要下载 Source code 源码包），解压后将完整 `wechat-reader/` 放入笔记库 `.obsidian/plugins/`，保留 `engine/`，启用插件。已安装标准插件时，补充或覆盖完整包文件，并保留原有 `data.json` 和 `cache/`。仅使用 RSS/Atom 时，可在社区插件页面安装（目录中可用时），或手动安装 `main.js`、`manifest.json`、`styles.css`。自定义配置目录的笔记库请使用实际路径。
+1. 先在社区插件页面安装（目录中可用时），或手动将 `main.js`、`manifest.json`、`styles.css` 放入笔记库配置目录的 `plugins/wechat-reader/`。普通 RSS/Atom 可直接使用；公众号用户在设置中点击“安装公众号引擎”并确认下载，安装后启用公众号并扫码。也可从 [1.1.0 发布页](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.1.0) 下载 `wechat-reader-1.1.0-macos-arm64.zip`，解压后复制完整 `wechat-reader/`（含 `engine/`）到插件目录；不要下载 Source code 源码包。覆盖安装时保留 `data.json` 和 `cache/`。默认配置目录为 `.obsidian`，自定义配置目录请使用实际路径。
 2. 点击 RSS 图标或执行“打开 RSS 阅读侧栏”。首次安装和一期升级默认停靠**右侧栏**，后续保留用户拖动的布局。
 3. 点击 `+` 添加 RSS/Atom XML 地址。菜单支持 OPML 导入预览和导出；重复 URL 保留原源，同名源可分别放在不同分组。右键源可以修改名称、分组、刷新周期或停止自动刷新；历史缓存和阅读状态保留。
 4. 点击文章打开原生阅读弹窗。`← / →` 切换前后文章，`↑ / ↓` 滚动正文，`Esc` 关闭；输入框、输入法和其他弹窗不受影响。打开时冻结当前已展示的文章队列，标记已读后不会跳篇，首尾不循环。
@@ -26,13 +32,14 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 
 ## 更新方式与原因
 
-Obsidian 的标准更新机制只下载 `main.js`、`manifest.json` 和可选的 `styles.css`，不会解压 Release 完整包并安装 `engine/`。参见 [官方发布说明](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)。
+Obsidian 标准更新只下载 `main.js`、`manifest.json` 和可选的 `styles.css`，不会解压完整包中的引擎。参见 [官方发布说明](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)。
 
-- 仅修改界面的版本，通常在插件页面更新即可，以发行说明为准。
-- 修改公众号采集内核的版本（包括 **1.0.0**），需要同时下载该版本完整包并替换 `engine/`。关闭所有使用该采集程序的笔记库，等待采集结束和程序退出后再替换，随后重新打开 Obsidian。同机多个库均使用公众号时，需要逐一更新相关库。保留原有设置、缓存和归档笔记。
-- 插件页面显示新版本号，只代表标准插件文件已更新，不能证明独立引擎也已更新。插件不会自动下载或安装引擎。
+- 普通 RSS/Atom 和仅改界面的版本，通常只需标准插件更新。
+- 1.1.0 提供独立的引擎安装入口。插件不查询 latest、不在后台下载，不自动更新自身或引擎；按钮始终安装插件代码中固定的兼容版本。
+- 当后续插件版本指定新引擎时，用户需再次确认安装。现阶段仅提供固定 1.0.0 引擎的安装、修复，不检测其他未来版本。
+- 手动完整包安装仍可使用。替换正在使用的旧 `engine/` 前应关闭所有相关笔记库，等待采集结束和程序退出。保留 `data.json`、`cache/` 和归档文件。同机多个库使用公众号时，应统一更新，避免运行不兼容版本。
 
-这样设计是为了随包提供固定 Node 环境，并让多个笔记库共享 SQLite、采集队列与文章存储；普通 RSS/Atom 则不必启动公众号程序。额外安装步骤是当前独立引擎架构的取舍，并非所有 Obsidian 插件都需要如此安装。
+独立采集程序提供固定 Node、共享 SQLite 与队列，使普通 RSS 无需依赖公众号运行环境。用户点击安装的目的是减少跳转 GitHub 和手动解压的步骤；离线或下载失败时仍可手动安装完整包。
 
 ## 订阅配置
 
@@ -74,9 +81,9 @@ Obsidian 的标准更新机制只下载 `main.js`、`manifest.json` 和可选的
 
 本插件采用 [MIT License](LICENSE)。旧版采集实现参考并保留 [wechat-mp-tools](https://github.com/x554960766/wechat-mp-tools) 的 MIT 许可；第三方运行依赖的许可随完整包附带。
 
-普通 RSS/Atom 会联网访问用户填写的源和文章图片地址。公众号功能需要微信读书账号，会访问微信/微信读书服务以扫码、查询公众号和下载正文，必要时使用本机 Chrome 或 Edge。插件会读写笔记库之外的本机共享目录，保存凭据、文章与采集进度，位置详见下文。不包含遥测、广告或付费功能，不自动下载安装或更新自身及依赖。
+普通 RSS/Atom 会联网访问用户填写的源和文章图片地址。公众号功能需要微信读书账号，会访问微信/微信读书服务以扫码、查询公众号和下载正文，必要时使用本机 Chrome 或 Edge。插件会读写笔记库之外的本机共享目录，保存凭据、文章与采集进度，位置详见下文。不包含遥测、广告或付费功能。仅用户明确点击确认后从 GitHub 下载公众号引擎，不在启动时自动安装，也不自动更新自身或依赖。
 
-完整包目前仅适用于 macOS Apple Silicon。仅安装标准 `main.js`、`manifest.json`、`styles.css` 时可使用普通 RSS/Atom；公众号功能还需用户手动从本 Release 的完整包中复制 `engine/`。没有附属程序时会给出安装提示，不会自动下载依赖。
+完整包目前仅适用于 macOS Apple Silicon。仅安装标准 `main.js`、`manifest.json`、`styles.css` 时可使用普通 RSS/Atom；公众号功能可在 1.1.0 的设置中主动安装引擎，也可手动复制完整包中的 `engine/`；没有引擎时会提示安装，只有确认下载后才访问 GitHub。
 
 ## 开发与验证
 
@@ -92,7 +99,7 @@ npm run test:package
 WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 ```
 
-`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 1.0.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；1.0.0 的公众号功能应安装本版本完整包中的 `engine/`。
+`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 1.1.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；1.1.0 的公众号功能可通过设置安装固定 1.0.0 引擎，或手动安装 1.1.0 完整包中的 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。
 
