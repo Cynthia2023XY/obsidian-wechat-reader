@@ -1,3 +1,4 @@
+import { wechatImageUrl } from '../collector/remote-image';
 import { Modal, Notice } from 'obsidian';
 import TurndownService from 'turndown';
 import type WeChatReaderPlugin from '../main';
@@ -180,6 +181,14 @@ export class ArticleReaderModal extends Modal {
             this.updateStar();
             for (const task of tasks) {
                 try {
+                    const remote = !article.id.startsWith('rss_') && wechatImageUrl(task.asset.sourceUrl);
+                    if (remote) {
+                        task.image.referrerPolicy = 'no-referrer';
+                        task.image.loading = 'lazy';
+                        task.image.onerror = () => task.image.replaceWith(document.createTextNode('[远程图片加载失败，可查看原文]'));
+                        task.image.src = remote;
+                        continue;
+                    }
                     // 图片下载串行，不阻塞正文成为可读状态。
                     const bytes = await this.plugin.service.contentProvider().asset(article.id, task.asset);
                     if (this.closed || sequence !== this.sequence)

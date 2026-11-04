@@ -1,6 +1,7 @@
+import { wechatImageUrl } from '../src/collector/remote-image';
 import { parseHTML } from 'linkedom';
 import { join } from 'node:path';
-import { existsSync, mkdirSync, rmSync, copyFileSync, writeFileSync, statfsSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync, statfsSync } from 'node:fs';
 import { Auth, boundedFetch } from './auth';
 import { Problem, canonicalUrl, sha, Store, utc } from './core';
 import type { DiscoveredArticle, StoredAccount, StoredAsset } from './core';
@@ -251,48 +252,7 @@ export class Collector {
             const id = previous?.id || sha(url).slice(0, 24);
             // 不暴露文件名到界面。
             const asset: StoredAsset = { id, file: `${id}.img`, state: 'failed', mime: 'application/octet-stream', sourceUrl: url };
-            if (previous?.state === 'ready') {
-                try {
-                    copyFileSync(store.assetPath(article.id, id), join(temporary, asset.file));
-                    asset.state = 'ready';
-                    asset.mime = previous.mime;
-                }
-                catch { /* 已丢失的缓存需要重新下载。 */ }
-            }
-            if (asset.state !== 'ready') {
-                try {
-                    // 只允许微信图片 CDN，禁止任意网页驱动内网资源下载。
-                    const parsed = new URL(url);
-                    if (parsed.protocol !== 'https:' || !/(^|\.)(qpic|qlogo)\.cn$/.test(parsed.hostname))
-                        throw new Error();
-                    // 不跟随未经验证的资源重定向。
-                    const response = await boundedFetch(url, { redirect: 'error' }, 20000);
-                    // 实际 MIME 验证与读取大小上限共同约束资源。
-                    const mime = response.headers.get('content-type')?.split(';')[0] || '';
-                    if (!response.ok || !['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'].includes(mime))
-                        throw new Error();
-                    // 流式读取避免恶意超大响应耗尽内存。
-                    const reader = response.body!.getReader(), chunks: Uint8Array[] = [];
-                    // 图片单资源限额沿用一期 20 MB。
-                    let size = 0;
-                    while (true) {
-                        // 当前上游条目或分块结果，读取后进行边界校验。
-                        const item = await reader.read();
-                        if (item.done)
-                            break;
-                        size += item.value.byteLength;
-                        if (size > 20 * 1024 * 1024) {
-                            await reader.cancel();
-                            throw new Error();
-                        }
-                        chunks.push(item.value);
-                    }
-                    writeFileSync(join(temporary, asset.file), Buffer.concat(chunks));
-                    asset.state = 'ready';
-                    asset.mime = mime;
-                }
-                catch { /* 缺图独立标记，正文仍然可读。 */ }
-            }
+            if (wechatImageUrl(url)) asset.state = 'remote';
             if (!assets.some(item => item.id === id))
                 assets.push(asset);
             // 图片读取必须先鉴权，原文地址不直接进入插件 DOM。

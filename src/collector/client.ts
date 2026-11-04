@@ -1,3 +1,4 @@
+import { wechatImageUrl } from './remote-image';
 import { requestUrl } from 'obsidian';
 import type { Asset, CollectorProvider, Health } from './types';
 
@@ -36,6 +37,14 @@ export class LocalCollectorClient implements CollectorProvider {
   }
   /** 先鉴权下载图片，再由插件生成受控本地显示资源 */
   async asset(articleId: string, asset: Asset): Promise<ArrayBuffer> {
+    const remote = wechatImageUrl(asset.sourceUrl);
+    if (remote) {
+      const response = await requestUrl({ url: remote, throw: false });
+      const mime = (response.headers['content-type'] || '').split(';')[0];
+      if (response.status !== 200 || !['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(mime) || response.arrayBuffer.byteLength > 20 * 1024 * 1024) throw new Error('远程图片下载失败');
+      asset.mime = mime;
+      return response.arrayBuffer;
+    }
     // ID 编码避免调用方拼入路径或查询参数。
     const response = await requestUrl({ url: this.url(`/v1/articles/${encodeURIComponent(articleId)}/assets/${encodeURIComponent(asset.id)}`), headers: { 'X-Reader-Key': this.discovery.key }, throw: false });
     if (response.status !== 200) throw new Error('图片读取失败');

@@ -1,3 +1,4 @@
+import { wechatImageUrl } from '../src/collector/remote-image';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
@@ -516,7 +517,7 @@ export class RuntimeServer {
         }
     }
     /** API 资源元信息只包含资源 ID 与显示能力 */
-    private publicArticle(article: Article): Article { return { ...article, assets: article.assets.map(asset => ({ id: asset.id, state: asset.state, mime: asset.mime })) }; }
+    private publicArticle(article: Article): Article { return { ...article, assets: article.assets.map(asset => ({ id: asset.id, state: wechatImageUrl(asset.sourceUrl) ? 'remote' : asset.state, mime: asset.mime, sourceUrl: wechatImageUrl(asset.sourceUrl) })) }; }
     /** 返回已经确认归属及 MIME 的图片文件 */
     private sendAsset(response: ServerResponse, id: string, assetId: string): void {
         // 本次操作所属的文章，不复用界面稍后的选择。
@@ -541,10 +542,12 @@ export class RuntimeServer {
             for (const image of document.querySelectorAll('img')) {
                 // 正文占位引用的文章图片身份。
                 const assetId = image.getAttribute('src')?.replace(/^asset:/, '');
-                if (!token || !article.assets.some(asset => asset.id === assetId && asset.state === 'ready'))
-                    image.remove();
-                else
+                const asset = article.assets.find(asset => asset.id === assetId);
+                const remote = wechatImageUrl(asset?.sourceUrl);
+                if (remote) image.setAttribute('src', remote);
+                else if (token && asset?.state === 'ready')
                     image.setAttribute('src', `http://127.0.0.1:${this.port}/feed-assets/${id}/${token}/${article.id}/${assetId}`);
+                else image.remove();
             }
             return `<item><title>${xmlEscape(article.title)}</title><link>${xmlEscape(article.url)}</link><guid isPermaLink="false">${article.id}</guid>${article.publishedAt ? `<pubDate>${new Date(article.publishedAt).toUTCString()}</pubDate>` : ''}<description>${xmlEscape(document.body.innerHTML)}</description></item>`;
         }).join('');

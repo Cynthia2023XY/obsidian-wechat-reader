@@ -30,3 +30,5 @@ The legacy collector retains the MIT attribution of [wechat-mp-tools](https://gi
 Development requires Node.js 26 or later. Run `npm ci`, `npm test`, `npm run test:companion`, `npm run lint`, and `npm run build`. Build the optional macOS Apple Silicon companion package with `npm run package:companion`. Install its `engine/` folder manually; other operating systems can use standard RSS and Atom without that companion.
 
 The optional companion runs only while needed by Obsidian, unless persistent mode is selected. It does not install an operating-system background service. WeChat credentials remain in the local shared data directory, outside vault sync. Private feed URLs may contain subscription tokens; exported subscription files should be handled as private data. The plugin does not collect telemetry or automatically install dependencies.
+
+WeChat images load directly from validated HTTPS CDN URLs while reading. Archiving downloads images as vault attachments. See [the image storage design](docs/remote-images.md).

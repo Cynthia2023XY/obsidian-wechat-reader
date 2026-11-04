@@ -1,3 +1,4 @@
+import { wechatImageUrl } from '../collector/remote-image';
 import { requestUrl } from 'obsidian';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -87,7 +88,7 @@ export class FeedService {
         try {
             const cached = JSON.parse(await readFile(path, 'utf8')) as Article;
             if (cached.id === id && cached.html && cached.state === 'ready') previous = cached;
-            if (cached.id === id && cached.contentVersion === item.contentVersion && cached.html && cached.state === 'ready') return this.readable(cached);
+            if (cached.id === id && cached.contentVersion === item.contentVersion && cached.html && cached.state === 'ready') return this.readable({ ...cached, assets: cached.assets.map(asset => ({ ...asset, sourceUrl: item.assets.find(current => current.id === asset.id)?.sourceUrl || asset.sourceUrl })) });
         } catch { /* 首次补齐正文缓存。 */ }
         // 共享正文被清理后，仍优先使用当前库已缓存的正文。
         if (item.state === 'evicted' && previous) return this.readable(previous);
@@ -482,6 +483,13 @@ export class FeedService {
                 } catch { /* 本库没有可用的旧正文缓存。 */ }
             }
             if (!owned) throw new Error('图片不属于当前文章');
+            if (wechatImageUrl(owned.sourceUrl)) {
+                const response = await requestUrl({ url: wechatImageUrl(owned.sourceUrl)!, throw: false });
+                const mime = (response.headers['content-type'] || '').split(';')[0];
+                if (response.status !== 200 || !['image/jpeg','image/png','image/gif','image/webp','image/avif'].includes(mime) || response.arrayBuffer.byteLength > 20 * 1024 * 1024) throw new Error('远程图片下载失败');
+                asset.mime = mime;
+                return response.arrayBuffer;
+            }
             const version = asset.contentVersion || article.contentVersion;
             const path = join(this.directory, 'cache/assets', digest(`${id}:${version}:${asset.id}`));
             try { return Uint8Array.from(await readFile(path)).buffer; } catch { /* 按需补读。 */ }

@@ -181,13 +181,14 @@ test('真实 TS 下载器清理脚本与装饰图，图片归属及补采版本�
     // 真实 TS 下载器清理脚本与装饰图，图片归属及补采版本不可变所需的隔离输入、依赖或断言结果。
     const collector = new Collector(root), original = global.fetch;
     t.after(() => { global.fetch = original; collector.auth.dispose(); });
-    global.fetch = async (url) => String(url).includes('qpic.cn') ? new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } }) : new Response('<html><body><h1 id="activity-name">测试</h1><div id="js_content"><script>evil()</script><p onclick="evil()">安全正文</p><img/><img data-src="https://mmbiz.qpic.cn/a"/></div></body></html>');
+    global.fetch = async (url) => String(url).includes('qpic.cn') ? (() => { throw new Error('采集阶段不应请求图片'); })() : new Response('<html><body><h1 id="activity-name">测试</h1><div id="js_content"><script>evil()</script><p onclick="evil()">安全正文</p><img/><img data-src="https://mmbiz.qpic.cn/a"/></div></body></html>');
     // 真实 TS 下载器清理脚本与装饰图，图片归属及补采版本不可变所需的隔离输入、依赖或断言结果。
     const ready = await collector.download(article, store);
     assert.equal(ready.state, 'ready');
     assert.equal(ready.assets.length, 1);
-    assert.equal(ready.assets[0].state, 'ready');
-    assert.equal(ready.assets[0].mime, 'image/png');
+    assert.equal(ready.assets[0].state, 'remote');
+    assert.equal(ready.assets[0].sourceUrl, 'https://mmbiz.qpic.cn/a');
+    assert.ok(!existsSync(join(root, 'data/articles', ready.id, ready.contentVersion, ready.assets[0].file)));
     // 真实 TS 下载器清理脚本与装饰图，图片归属及补采版本不可变所需的隔离输入、依赖或断言结果。
     const html = store.content(ready), oldVersion = ready.contentVersion;
     assert.ok(!/script|onclick|https:/.test(html));
@@ -200,7 +201,7 @@ test('真实 TS 下载器清理脚本与装饰图，图片归属及补采版本�
     // 真实 TS 下载器清理脚本与装饰图，图片归属及补采版本不可变所需的隔离输入、依赖或断言结果。
     const retried = await collector.download(ready, store);
     assert.notEqual(retried.contentVersion, oldVersion);
-    assert.equal(retried.assets[0].state, 'ready');
+    assert.equal(retried.assets[0].state, 'remote');
     assert.ok(existsSync(join(root, 'data/articles', ready.id, oldVersion, 'content.html')));
 });
 test('401 只续期一次，429 转等待验证，其他499不伪装验证码', async (t) => {

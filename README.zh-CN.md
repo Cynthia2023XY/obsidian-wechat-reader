@@ -72,3 +72,7 @@ WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 `test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 0.4.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；公众号功能需要 0.3.0 或更新版本完整包中的 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。
+
+## 公众号图片存储
+
+公众号正文保存在本地，图片在阅读时直接从微信 HTTPS 图片 CDN 加载，不再批量保存到共享存储。主动归档时才下载为笔记库附件。旧图片清理工具默认仅预览，操作前需停止采集程序。详见 [方案说明](docs/remote-images.md)。
