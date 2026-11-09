@@ -1,9 +1,11 @@
+import { SubscriptionManagerModal } from './subscription-manager';
 import { Modal, Notice, Setting } from 'obsidian';
 import type WeChatReaderPlugin from '../main';
 import type { Feed } from '../collector/types';
 import { subscriptionForFeed } from '../collector/subscriptions';
 import { parseSubscriptionConfiguration, planSubscriptionImport } from '../feeds/configuration';
 
+/** 获取普通订阅地址或公众号恢复用原文链接 */
 export function subscriptionLink(feed: Feed): string | undefined {
     return feed.kind === 'wechat' ? subscriptionForFeed(feed)?.articleUrl : feed.url;
 }
@@ -31,24 +33,18 @@ void (async () => {
         })(); });
     }
 }
+/** 设置页只保留统一管理入口和迁移快捷操作 */
 export function appendSubscriptionSettings(parent: HTMLElement, plugin: WeChatReaderPlugin, onImported: () => void): HTMLElement {
-    new Setting(parent).setName('订阅配置').setHeading();
-    parent.createEl('p', { cls: 'wr-placeholder', text: '导出名称、链接、分组、开关和刷新间隔，支持 RSS、Atom 和公众号。登录凭据、文章缓存和阅读记录不包含在内。' });
-    const actions = parent.createDiv({ cls: 'wr-subscription-config-actions' });
-    const exportButton = actions.createEl('button', { text: '导出订阅配置' });
-    exportButton.addEventListener('click', () => { // DOM 回调同步返回，异步任务在内部处理失败。
-void (async () => {
-        exportButton.disabled = true;
-        try { await plugin.exportSubscriptionConfiguration(); }
-        catch (error) { new Notice(error instanceof Error ? error.message : '导出失败'); }
-        finally { exportButton.disabled = false; }
-    })(); });
-    actions.createEl('button', { text: '导入订阅配置' }).addEventListener('click', () => new SubscriptionImportModal(plugin, onImported).open());
-    new Setting(parent).setName('当前订阅链接（只读）').setHeading();
-    parent.createEl('p', { cls: 'wr-placeholder', text: '包含已暂停的订阅。公众号显示已保存、用于恢复订阅的原文链接；未保存的链接会明确提示。' });
-    const list = parent.createDiv({ cls: 'wr-subscription-settings-list' });
-    renderSubscriptionLinks(list, plugin.service.feeds());
-    return list;
+    new Setting(parent).setName('订阅管理').setDesc('添加、搜索、分组、暂停、恢复或移除订阅，查看和复制来源链接。').addButton(button => button.setButtonText('管理订阅').onClick(() => new SubscriptionManagerModal(plugin).open()));
+    new Setting(parent).setName('订阅配置迁移').setDesc('仅导入导出订阅定义，不包含登录凭据、文章缓存或阅读记录。')
+        .addButton(button => button.setButtonText('导入订阅配置').onClick(() => new SubscriptionImportModal(plugin, onImported).open()))
+        .addButton(button => button.setButtonText('导出订阅配置').onClick(async () => {
+            button.setDisabled(true);
+            try { await plugin.exportSubscriptionConfiguration(); }
+            catch (error) { new Notice(error instanceof Error ? error.message : '导出失败'); }
+            finally { button.setDisabled(false); }
+        }));
+    return parent.createDiv();
 }
 /** JSON 文件完全验证后预览，点击确认时重新按最新本库状态合并。 */
 export class SubscriptionImportModal extends Modal {

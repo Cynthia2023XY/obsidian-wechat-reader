@@ -16,7 +16,7 @@ Install standard plugin files via Community plugins when available, or copy `mai
 
 Downloaded engines live in version directories named `wechat-engine-<UUID>/` inside the plugin folder, selected through `wechat-engine.json`. Existing manually installed `engine/` remains supported. Settings, caches and archive files are preserved. A running shared companion keeps its current tasks; a new process uses the selected engine. Old engine directories are retained to protect running processes; each reinstall consumes approximately another 150 MiB.
 
-Manual fallback: download the full ZIP from the [1.1.0 release](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.1.0), not the Source code archive, and install its complete plugin folder while preserving `data.json` and `cache/`.
+Manual fallback: download the full ZIP from the [1.2.0 release](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.2.0), not the Source code archive, and install its complete plugin folder while preserving `data.json` and `cache/`.
 
 **Updates:** Obsidian's [standard updater](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) distributes only the standard plugin files. This installer does not query latest or update silently: the version and digest are pinned in plugin code. A future plugin release can specify a new compatible package for users to explicitly install. The current installer only installs or repairs engine 1.0.0. Close relevant vaults and wait for collection and the old companion to stop before manually replacing an engine in use; keep related vaults on compatible versions.
 
@@ -25,6 +25,12 @@ A separate companion supplies fixed Node, shared SQLite and a collection queue a
 ### Usage
 
 Run “打开 RSS 阅读侧栏” or click the RSS ribbon icon, then use `+` to add an RSS or Atom feed URL. Open an article to read it, use the arrow keys to navigate, and choose “保存为 MD” to archive it. The All / Unread / Read / Starred entries show articles across feeds immediately; expand the feed navigation to browse one source. Lists show 50 articles initially and load 50 more at a time, with full-result counts. The reader freezes the currently displayed articles for navigation. Configure the archive folder and reader width in the plugin settings.
+
+### Subscription management
+
+Open the same subscription manager from the button beside “订阅源” in the reader or “管理订阅” in plugin settings. Search by name, group or URL, filter active/paused feeds, add subscriptions, and import/export configuration. Click a feed name to expand its read-only URL and refresh interval. WeChat article links are recovery references rather than RSS endpoints. Feed settings support renaming, grouping and refresh configuration.
+
+“暂停自动更新” pauses updates while keeping the sidebar entry. “移除订阅” hides the source from this vault after confirmation, preserving article caches, read/bookmark states and archived notes. Adding the same source restores its entry. Removing a WeChat source also stops its shared local collection, affecting automatic updates in other vaults. The older “取消订阅” action in WeChat settings only stops collection and keeps the entry visible.
 
 ### Privacy and system access
 

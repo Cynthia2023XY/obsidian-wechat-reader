@@ -51,7 +51,7 @@ export class FeedService {
             await this.save();
             await rename(recoveryPath, `${recoveryPath}.applied`);
         }
-        for (const feed of this.feeds()) {
+        for (const feed of [...this.data.wechatFeeds, ...this.data.feeds]) {
             try {
                 // 读取本插件写入的文章缓存，不让未声明类型穿透服务边界。
                 const cached = JSON.parse(await readFile(join(this.directory, 'cache', `${feed.id}.json`), 'utf8')) as { articles?: Article[] };
@@ -72,7 +72,7 @@ export class FeedService {
         void this.tick();
     }
     /** 当前统一订阅列表，分组与显示名称不改变主键 */
-    feeds(): Feed[] { return [...this.data.wechatFeeds, ...this.data.feeds]; }
+    feeds(includeRemoved = false): Feed[] { return [...this.data.wechatFeeds, ...this.data.feeds].filter(feed => includeRemoved || !feed.removed); }
     /** 获取所有已加载条目，以发布时间稳定排序 */
     articles(feedId?: string): Article[] { return [...this.cache.values()].flat().filter(article => !feedId || article.accountId === feedId).sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '') || a.id.localeCompare(b.id)); }
     /** 获取正文；RSS 使用当前库缓存，公众号正文从共享服务读取 */
@@ -119,8 +119,16 @@ export class FeedService {
         const canonical = feedUrl(url);
         // 重复添加返回原对象，不以名称或文件夹作为身份。
         const existing = this.data.feeds.find(feed => feed.url === canonical);
-        if (existing)
+        if (existing) {
+            if (existing.removed) {
+                // 恢复入口与自动刷新开关作为同一次本地写入提交。
+                const previous = { removed: existing.removed, enabled: existing.enabled };
+                existing.removed = false; existing.enabled = true;
+                try { await this.save(); } catch (error) { Object.assign(existing, previous); throw error; }
+                this.onChange(); this.schedule();
+            }
             return existing;
+        }
         // 新源默认每小时检查，用户可在设置中调整。
         const feed: Feed = { id: `feed_${digest(canonical)}`, kind: 'rss', title: title || new URL(canonical).hostname, url: canonical, folder, enabled: true, intervalMinutes: 60 };
         // 首次获取成功后才保存订阅配置。
@@ -156,15 +164,65 @@ export class FeedService {
     }
     /** 更新名称、分组和自动刷新设置，保持历史关联 */
     async update(feed: Feed, changes: Partial<Feed>): Promise<void> {
+        feed = this.currentFeed(feed.id);
         if (feed.kind === 'wechat')
             throw new Error('请使用公众号设置修改采集配置');
+        // 保存失败恢复表单提交前的配置。
+        const previous = { ...feed };
         Object.assign(feed, { title: changes.title ?? feed.title, folder: changes.folder ?? feed.folder, enabled: changes.enabled ?? feed.enabled, intervalMinutes: changes.intervalMinutes ?? feed.intervalMinutes });
-        await this.save();
+        try { await this.save(); } catch (error) { Object.assign(feed, previous); throw error; }
         this.onChange();
         this.schedule();
     }
+    /** 公众号的分组属于当前笔记库，不修改共享账户信息 */
+    async setFolder(feed: Feed, folder: string): Promise<void> {
+        feed = this.currentFeed(feed.id);
+        // 保存失败时恢复原分组，历史文章始终沿用相同身份。
+        const previous = feed.folder;
+        feed.folder = folder.trim();
+        try { await this.save(); } catch (error) { feed.folder = previous; throw error; }
+        this.onChange();
+    }
     /** 取消订阅只停止刷新，保留缓存和本库阅读状态 */
     async unsubscribe(feed: Feed): Promise<void> { await this.update(feed, { enabled: false }); }
+    /** 统一暂停或恢复刷新，公众号同步更新共享采集配置 */
+    async setEnabled(feed: Feed, enabled: boolean): Promise<void> {
+        feed = this.currentFeed(feed.id);
+        if (feed.kind !== 'wechat') { await this.update(feed, { enabled }); return; }
+        // 缺少本机账户时只更新可迁移定义，恢复后使用最新开关。
+        if (!feed.missingLocalData) {
+            await (await this.provider()).call(`/v1/accounts/${feed.id}`, 'PATCH', { subscribed: true, autoSync: enabled });
+        }
+        // 请求期间快照可能替换来源对象，始终修改当前本库对象。
+        feed = this.currentFeed(feed.id);
+        const previous = { ...feed };
+        feed.enabled = enabled;
+        if (feed.wechat) feed.wechat = { ...feed.wechat, subscribed: true, autoSync: enabled };
+        try { await this.save(); } catch (error) { Object.assign(feed, previous, { removed: previous.removed }); throw error; }
+        this.onChange(); this.schedule();
+    }
+    /** 移除本库来源入口，保留缓存、阅读和归档关联，快照不自动重新添加 */
+    async removeSubscription(feed: Feed): Promise<void> {
+        feed = this.currentFeed(feed.id);
+        // 先停止共享采集；失败时保持来源可见，允许用户重试。
+        if (feed.kind === 'wechat' && !feed.missingLocalData) {
+            await (await this.provider()).call(`/v1/accounts/${feed.id}/subscription`, 'DELETE');
+        }
+        // 请求期间快照可能替换来源对象，保存失败时恢复本库配置。
+        feed = this.currentFeed(feed.id);
+        const previous = { ...feed };
+        feed.enabled = false; feed.removed = true;
+        if (feed.wechat) feed.wechat = { ...feed.wechat, subscribed: false, autoSync: false };
+        try { await this.save(); } catch (error) { Object.assign(feed, previous, { removed: previous.removed }); throw error; }
+        this.onChange(); this.schedule();
+    }
+    /** 从本库最新集合解析来源，避免后台快照替换后修改过期对象 */
+    private currentFeed(id: string): Feed {
+        // 已经移除的来源不能被旧菜单或旧表单再次操作。
+        const feed = this.feeds().find(item => item.id === id);
+        if (!feed) throw new Error('订阅已移除，请重新打开管理窗口');
+        return feed;
+    }
     /** 普通订阅刷新共享同一任务，304 和错误均不清空历史 */
     async refresh(feed: Feed): Promise<void> {
         if (feed.kind === 'wechat') {
@@ -303,6 +361,7 @@ export class FeedService {
         const provider = await this.provider();
         const result = await provider.call<{ account: Account }>('/v1/accounts', 'POST', { resolutionId: resolution.resolutionId, displayName });
         const feed = this.feedFromAccount(result.account, articleUrl);
+        feed.removed = false;
         if (!feed.wechat) throw new Error('公众号恢复信息不完整，请重新解析文章链接');
         const feeds = new Map(this.data.wechatFeeds.map(item => [item.id, item]));
         feeds.set(feed.id, feed); this.data.wechatFeeds = [...feeds.values()];
@@ -321,7 +380,7 @@ export class FeedService {
             const result = { restored: 0, needsLink: 0, failed: 0, loggedIn: auth.loggedIn };
             if (!auth.loggedIn) return result;
             await this.refreshWeChat();
-            for (const feed of this.data.wechatFeeds.filter(item => item.missingLocalData)) {
+            for (const feed of this.data.wechatFeeds.filter(item => item.missingLocalData && !item.removed)) {
                 const subscription = subscriptionForFeed(feed, this.cache.get(feed.id) || []);
                 if (!subscription) { result.needsLink++; continue; }
                 const key = this.restorationKey(feed);
@@ -348,13 +407,13 @@ export class FeedService {
     }
     private restorationKey(feed: Feed): string { return `${feed.id}:${JSON.stringify(subscriptionForFeed(feed))}`; }
     private canRestore(): boolean {
-        return !!this.snapshot?.loggedIn && this.data.wechatFeeds.some(feed => feed.missingLocalData && subscriptionForFeed(feed) && !this.restorationTried.has(this.restorationKey(feed)));
+        return !!this.snapshot?.loggedIn && this.data.wechatFeeds.some(feed => !feed.removed && feed.missingLocalData && subscriptionForFeed(feed) && !this.restorationTried.has(this.restorationKey(feed)));
     }
     private feedFromAccount(account: Account, articleUrl?: string): Feed {
         const previous = this.data.wechatFeeds.find(feed => feed.id === account.id);
         const seed = articleUrl || previous?.wechat?.articleUrl || this.cache.get(account.id)?.find(article => article.url)?.url;
         const subscription = subscriptionFromAccount(account, seed) || subscriptionForFeed(previous || { id: account.id } as Feed);
-        return { id: account.id, kind: 'wechat', title: account.displayName, url: 'https://mp.weixin.qq.com/', folder: previous?.folder || '公众号', enabled: account.subscribed && account.autoSync, intervalMinutes: account.intervalMin, nextSyncAt: account.nextSyncAt, blocked: !!account.blocked, error: account.lastJob?.error?.message || account.blocked?.message, wechat: subscription };
+        return { removed: previous?.removed, id: account.id, kind: 'wechat', title: account.displayName, url: 'https://mp.weixin.qq.com/', folder: previous?.folder || '公众号', enabled: account.subscribed && account.autoSync, intervalMinutes: account.intervalMin, nextSyncAt: account.nextSyncAt, blocked: !!account.blocked, error: account.lastJob?.error?.message || account.blocked?.message, wechat: subscription };
     }
     /** 共享服务只写快照，所有笔记库从快照恢复列表与计划。 */
     private async readSnapshot(): Promise<void> {

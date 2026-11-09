@@ -71,3 +71,15 @@ textarea.wr-subscription-link{flex:1;min-width:0;resize:vertical;cursor:text;fon
 .wr-results button.wr-article-row{padding-left:7px}
 .wr-list-progress{padding:8px;font-size:var(--font-ui-smaller);color:var(--text-muted)}
 .wr-row-meta{overflow-wrap:anywhere}
+
+/* 统一订阅管理与阅读器入口，窄窗口允许自然换行 */
+.wr-manager-modal { width: min(800px, 94vw); }
+.wr-manager-toolbar, .wr-manager-heading, .wr-manager-actions, .wr-source-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wr-manager-toolbar input { flex: 1; min-width: 140px; }
+.wr-manager-results { max-height: 60vh; overflow-y: auto; }
+.wr-manager-row { border-top: 1px solid var(--background-modifier-border); padding: 12px 0; }
+.wr-manager-title { font-weight: var(--font-semibold); white-space: normal; overflow-wrap: anywhere; height: auto; text-align: left; }
+.wr-manager-heading > .wr-placeholder { flex: 1; }
+.wr-manager-actions { margin-left: auto; }
+.wr-manager-detail { padding: 8px; background: var(--background-secondary); border-radius: 6px; }
+.wr-source-heading > .wr-tree-row { flex: 1; order: -1; }

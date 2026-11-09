@@ -150,6 +150,10 @@ export class AccountModal extends Modal {
         this.contentEl.createEl('p', { text: `原始名称：${this.account.originalName} · 稳定 ID：${this.account.bookId}` });
         // 修改先暂存，点击保存才写入共享服务。
         let name = this.account.displayName;
+        // 分组只属于当前笔记库，不写入共享采集账户。
+        const localFeed = this.plugin.service.feeds().find(feed => feed.id === this.account.id);
+        // 表单暂存的本库分组。
+        let folder = localFeed?.folder || '公众号';
         // 自动开关只影响后续调度，当前有界任务继续收尾。
         let auto = this.account.autoSync;
         // 随机同步间隔的下界。
@@ -157,6 +161,7 @@ export class AccountModal extends Modal {
         // 随机同步间隔的上界。
         let maximum = intervalHours(this.account.intervalMax);
         new Setting(this.contentEl).setName('显示名称').addText(text => text.setValue(name).onChange(value => { name = value; }));
+        new Setting(this.contentEl).setName('分组').addText(text => text.setValue(folder).onChange(value => { folder = value; }));
         new Setting(this.contentEl).setName('自动同步').addToggle(toggle => toggle.setValue(auto).onChange(value => { auto = value; }));
         new Setting(this.contentEl).setName('最短间隔（小时）').setDesc('每轮同步结束后，在最短与最长间隔之间随机安排下一次；范围 1～24 小时。').addText(text => text.setValue(minimum).onChange(value => { minimum = value; }));
         new Setting(this.contentEl).setName('最长间隔（小时）').addText(text => text.setValue(maximum).onChange(value => { maximum = value; }));
@@ -165,6 +170,7 @@ export class AccountModal extends Modal {
             button.setDisabled(true);
             try {
                 await (await this.plugin.provider()).call(`/v1/accounts/${this.account.id}`, 'PATCH', { displayName: name, autoSync: auto, intervalMin: intervalMinutes(minimum, 60, 1440), intervalMax: intervalMinutes(maximum, 60, 1440) });
+                if (localFeed) await this.plugin.service.setFolder(localFeed, folder);
                 this.close();
                 await this.done();
             }

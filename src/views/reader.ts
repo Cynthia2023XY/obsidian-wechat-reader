@@ -1,3 +1,4 @@
+import { SubscriptionManagerModal, confirmSubscriptionRemoval } from './subscription-manager';
 import { ItemView, Menu, Notice, setIcon, WorkspaceLeaf } from 'obsidian';
 import type WeChatReaderPlugin from '../main';
 import type { Account, Article, Feed, Page } from '../collector/types';
@@ -91,6 +92,8 @@ export class ReaderView extends ItemView {
         const feeds = this.plugin.service.feeds();
         // 文章来源名称与范围校验共用的订阅索引。
         const feedById = new Map(feeds.map(feed => [feed.id, feed]));
+        // 已移除来源的历史文章继续显示原来源名称。
+        const historicalFeedById = new Map(this.plugin.service.feeds(true).map(feed => [feed.id, feed]));
         if (this.filter.startsWith('feed:') && !feedById.has(this.filter.slice(5))) this.filter = 'all';
         // 一次读取全集，按真实时间排序，未知时间置后并以身份稳定排序。
         const all = this.plugin.service.articles().map(article => ({ article, time: publishedTime(article.publishedAt) ?? -Infinity }))
@@ -123,8 +126,12 @@ export class ReaderView extends ItemView {
         }
         // 来源只用于选择范围，文章统一出现在下方结果区。
         const sources = this.list.createDiv({ cls: 'wr-sources' });
-        // 来源导航的展开和收起入口。
-        const toggle = this.listButton(sources, '订阅源', this.sourcesExpanded ? 'chevron-down' : 'chevron-right', 0, false);
+        // 来源标题和管理按钮共用一行。
+        const sourceHeader = sources.createDiv({ cls: 'wr-source-heading' });
+        // 管理入口始终可见，无需先展开或发现右键菜单。
+        this.iconButton(sourceHeader, 'settings', '管理订阅', () => new SubscriptionManagerModal(this.plugin).open());
+        // 展开按钮保留来源列表的原有行为。
+        const toggle = this.listButton(sourceHeader, '订阅源', this.sourcesExpanded ? 'chevron-down' : 'chevron-right', 0, false);
         toggle.dataset.navKey = 'sources';
         toggle.setAttribute('aria-expanded', String(this.sourcesExpanded));
         toggle.addEventListener('click', () => { this.sourcesExpanded = !this.sourcesExpanded; this.render(); });
@@ -178,7 +185,7 @@ export class ReaderView extends ItemView {
         const visible = articles.slice(0, limit);
         // 阅读弹窗只接收当前已展示文章的身份。
         const queue = visible.map(article => article.id);
-        for (const article of visible) this.articleRow(results, article, queue, feedById.get(article.accountId)?.title || '未知来源');
+        for (const article of visible) this.articleRow(results, article, queue, historicalFeedById.get(article.accountId)?.title || '未知来源');
         if (!articles.length) results.createDiv({ cls: 'wr-empty-feed', text: this.filter === 'unread' ? '暂无未读文章' : this.filter === 'read' ? '暂无已读文章' : this.filter === 'starred' ? '暂无收藏文章' : '暂无文章' });
         results.createDiv({ cls: 'wr-list-progress', text: `已显示 ${visible.length} / ${articles.length} 篇` });
         if (articles.length > limit) {
@@ -312,8 +319,10 @@ export class ReaderView extends ItemView {
             catch (error) {
                 new Notice(error instanceof Error ? error.message : '读取失败');
             } }));
-        else
-            menu.addItem(item => item.setTitle('取消自动订阅，保留历史').setIcon('pause').onClick(() => this.plugin.service.unsubscribe(feed)));
+        menu.addItem(item => item.setTitle(feed.enabled ? '暂停自动更新' : '恢复自动更新').setIcon(feed.enabled ? 'pause' : 'play').onClick(async () => {
+            try { await this.plugin.service.setEnabled(feed, !feed.enabled); } catch (error) { new Notice(error instanceof Error ? error.message : '操作失败'); }
+        }));
+        menu.addItem(item => item.setTitle('移除订阅').setIcon('trash-2').onClick(() => confirmSubscriptionRemoval(this.plugin, feed)));
         menu.showAtMouseEvent(event);
     }
     /** 聚合与树行共用简约按钮结构 */

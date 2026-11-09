@@ -57,7 +57,9 @@ export function planSubscriptionImport(data: ReaderData, incoming: Feed[], now =
     for (const feed of incoming) {
         if (feed.kind !== 'wechat') {
             const key = feedUrl(feed.url);
-            if (rss.has(key)) result.skipped++;
+            if (rss.get(key)?.removed) {
+                rss.set(key, { ...rss.get(key)!, ...feed, removed: false, checkedAt: now }); result.updated++;
+            } else if (rss.has(key)) result.skipped++;
             else { rss.set(key, { ...feed, checkedAt: now }); result.added++; }
             continue;
         }
@@ -66,6 +68,8 @@ export function planSubscriptionImport(data: ReaderData, incoming: Feed[], now =
             wechat.set(feed.id, { ...feed, missingLocalData: true });
             result.added++; result.wechatAdded++;
             if (!feed.wechat) result.needsLink++;
+        } else if (existing.removed) {
+            wechat.set(feed.id, { ...existing, ...feed, removed: false }); result.updated++;
         } else if (!subscriptionForFeed(existing) && feed.wechat) {
             const portable = { ...feed.wechat, subscribed: existing.enabled || feed.wechat.subscribed, autoSync: existing.enabled, intervalMin: existing.intervalMinutes, intervalMax: Math.max(existing.intervalMinutes, feed.wechat.intervalMax) };
             wechat.set(feed.id, { ...existing, wechat: portable });

@@ -29,7 +29,7 @@ export interface CollectorProvider {
 }
 
 /** 普通订阅和公众号共用的展示模型，名称与分组不参与主键 */
-export interface Feed { id: string; kind: 'rss' | 'atom' | 'wechat'; title: string; url: string; folder: string; enabled: boolean; intervalMinutes: number; etag?: string; modified?: string; checkedAt?: number; error?: string; retryAt?: number; nextSyncAt?: number; blocked?: boolean; missingLocalData?: boolean; wechat?: WeChatSubscription; }
+export interface Feed { /** 本库移除标记，保留历史关联并防止共享快照重新显示 */ removed?: boolean; id: string; kind: 'rss' | 'atom' | 'wechat'; title: string; url: string; folder: string; enabled: boolean; intervalMinutes: number; etag?: string; modified?: string; checkedAt?: number; error?: string; retryAt?: number; nextSyncAt?: number; blocked?: boolean; missingLocalData?: boolean; wechat?: WeChatSubscription; }
 /** OPML 导入预览条目保留嵌套分组与校验状态 */
 export interface ImportFeed { title: string; url: string; folder: string; error?: string; duplicate?: boolean; }
 

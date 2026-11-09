@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exportSubscriptionConfiguration, parseSubscriptionConfiguration, planSubscriptionImport } from '../src/feeds/configuration';
 import { renderSubscriptionLinks, SubscriptionImportModal } from '../src/views/subscription-settings';
+import { SubscriptionManagerModal } from '../src/views/subscription-manager';
+import { Menu } from 'obsidian';
 import { FeedService } from '../src/feeds/service';
 import { wechatAccountId } from '../src/collector/subscriptions';
 import type { Feed, ReaderData } from '../src/collector/types';
@@ -19,9 +21,11 @@ beforeAll(() => {
             const element = document.createElement(tag);
             if (options.cls) element.className = options.cls;
             if (options.text) element.textContent = options.text;
+            if (options.value) element.setAttribute('value', options.value);
             for (const [name, value] of Object.entries(options.attr || {})) element.setAttribute(name, String(value));
             this.append(element); return element;
         }, createDiv(options: any) { return this.createEl('div', options); },
+        createSpan(options: any) { return this.createEl('span', options); },
     });
 });
 describe('订阅配置导入导出', () => {
@@ -105,5 +109,121 @@ describe('订阅链接设置与导入预览', () => {
         confirm.click();
         await vi.waitFor(() => expect(imported).toHaveBeenCalledTimes(1));
         expect(apply).toHaveBeenCalledWith(text);
+    });
+});
+
+describe('来源移除与恢复的数据保护', () => {
+    it('移除普通源保留历史缓存与阅读记录，重加沿用身份；保存失败回滚', async () => {
+        // 使用临时目录和禁止联网的连接器验证本地操作。
+        // 使用独立临时缓存目录。
+        const directory = await mkdtemp(join(tmpdir(), 'wechat-remove-'));
+        // 本例的笔记库订阅和阅读状态。
+        const state = data();
+        state.feeds = [{ ...rss }];
+        // 控制持久化成功与失败分支。
+        const save = vi.fn(async () => {});
+        // 记录是否意外连接公众号服务。
+        const connect = vi.fn();
+        // 待验证的统一订阅服务。
+        const service = new FeedService(state, directory, save, connect);
+        cleanups.push(async () => { service.dispose(); await rm(directory, { recursive: true, force: true }); });
+        // 模拟已缓存文章，移除入口不应删除内存索引。
+        const cache = (service as unknown as { cache: Map<string, unknown[]> }).cache;
+        cache.set(rss.id, [{ id: 'old', accountId: rss.id, publishedAt: '2026-11-09' }]);
+        save.mockRejectedValueOnce(new Error('磁盘不可写'));
+        await expect(service.removeSubscription(state.feeds[0])).rejects.toThrow('磁盘不可写');
+        expect(service.feeds()).toHaveLength(1);
+        await service.removeSubscription(state.feeds[0]);
+        expect(service.feeds()).toEqual([]);
+        expect(service.articles()).toHaveLength(1);
+        expect(state.reading).toEqual(data().reading);
+        expect(parseSubscriptionConfiguration(exportSubscriptionConfiguration(service.feeds()))).toEqual([]);
+        expect((await service.add(rss.url)).id).toBe(rss.id);
+        expect(service.feeds()[0]).toMatchObject({ enabled: true, removed: false });
+        expect(connect).not.toHaveBeenCalled();
+    });
+    it('公众号移除调用取消采集，后续快照和重启保留隐藏标记，手动重订阅恢复入口', async () => {
+        // 使用独立临时缓存目录。
+        const directory = await mkdtemp(join(tmpdir(), 'wechat-remove-shared-'));
+        // 本例的笔记库订阅和阅读状态。
+        const state = data();
+        state.wechatFeeds = [structuredClone(wechat)];
+        // 共享采集返回的公众号身份和暂停状态。
+        const account = { id: wechat.id, displayName: wechat.title, originalName: '原名', bookId: 'MP_WXS_123', platformId: 'MTIz', subscribed: false, autoSync: false, intervalMin: 120, intervalMax: 180, nextSyncAt: 0 };
+        // 替代共享采集 API，避免访问真实数据。
+        const call = vi.fn(async () => ({}));
+        // 待验证的统一订阅服务。
+        const service = new FeedService(state, directory, async () => {}, async () => ({ call }) as never);
+        cleanups.push(async () => { service.dispose(); await rm(directory, { recursive: true, force: true }); });
+        await service.removeSubscription(state.wechatFeeds[0]);
+        expect(call).toHaveBeenCalledWith(`/v1/accounts/${wechat.id}/subscription`, 'DELETE');
+        await (service as unknown as { mergeWeChat(accounts: unknown[], articles: unknown[]): Promise<void> }).mergeWeChat([account], []);
+        expect(service.feeds()).toEqual([]);
+        // 用序列化配置模拟插件重启。
+        const restarted = new FeedService(JSON.parse(JSON.stringify(state)), directory, async () => {}, vi.fn());
+        expect(restarted.feeds()).toEqual([]);
+        restarted.dispose();
+        expect((await service.importConfiguration(exportSubscriptionConfiguration([wechat]))).updated).toBe(1);
+        expect(service.feeds()).toHaveLength(1);
+    });
+    it('共享服务取消失败时保留入口；缺少本机账户时可离线暂停和移除', async () => {
+        // 使用独立临时缓存目录。
+        const directory = await mkdtemp(join(tmpdir(), 'wechat-remove-failure-'));
+        // 本例的笔记库订阅和阅读状态。
+        const state = data();
+        state.wechatFeeds = [structuredClone(wechat)];
+        // 替代共享采集 API，避免访问真实数据。
+        const call = vi.fn(async () => { throw new Error('服务不可用'); });
+        // 待验证的统一订阅服务。
+        const service = new FeedService(state, directory, async () => {}, async () => ({ call }) as never);
+        cleanups.push(async () => { service.dispose(); await rm(directory, { recursive: true, force: true }); });
+        await expect(service.removeSubscription(state.wechatFeeds[0])).rejects.toThrow('服务不可用');
+        expect(service.feeds()[0].enabled).toBe(true);
+        state.wechatFeeds[0].missingLocalData = true;
+        await service.setEnabled(state.wechatFeeds[0], false);
+        expect(state.wechatFeeds[0].wechat?.autoSync).toBe(false);
+        await service.removeSubscription(state.wechatFeeds[0]);
+        expect(service.feeds()).toEqual([]);
+        expect(call).toHaveBeenCalledTimes(1);
+    });
+});
+
+
+describe('统一订阅管理窗口', () => {
+    it('搜索和状态筛选共同生效，详情按需展开，暂停调用统一服务并刷新状态', async () => {
+        // 仅替代业务服务，不连接本机采集或真实笔记库。
+        // 覆盖暂停 RSS 与正常公众号的来源夹具。
+        const feeds = [structuredClone(rss), structuredClone(wechat)];
+        // 模拟统一暂停服务并更新来源状态。
+        const setEnabled = vi.fn(async (feed: Feed, enabled: boolean) => { feed.enabled = enabled; });
+        // 管理窗口需要的最小插件依赖。
+        const plugin = { app: {}, service: { feeds: () => feeds, setEnabled } };
+        // 待验证的统一订阅管理窗口。
+        const modal = new SubscriptionManagerModal(plugin as never);
+        modal.open();
+        cleanups.push(async () => modal.close());
+        expect(modal.contentEl.querySelectorAll('.wr-manager-row')).toHaveLength(2);
+        expect(modal.contentEl.querySelector('textarea')).toBeNull();
+        // 来源详情中的链接不可编辑，避免误改公众号身份。
+        modal.contentEl.querySelector<HTMLButtonElement>('.wr-manager-title')!.click();
+        expect(modal.contentEl.querySelector('textarea')?.value).toBe(rss.url);
+        expect(modal.contentEl.querySelector('textarea')?.readOnly).toBe(true);
+        // 用户可见的来源搜索框。
+        const search = modal.contentEl.querySelector('input')!;
+        search.value = '公众号'; search.dispatchEvent(new Event('input'));
+        expect(modal.contentEl.querySelectorAll('.wr-manager-row')).toHaveLength(1);
+        // 用户可见的订阅状态筛选器。
+        const status = modal.contentEl.querySelector('select')!;
+        status.value = 'paused'; status.dispatchEvent(new Event('change'));
+        expect(modal.contentEl.querySelectorAll('.wr-manager-row')).toHaveLength(0);
+        status.value = 'enabled'; status.dispatchEvent(new Event('change'));
+        modal.contentEl.querySelector<HTMLButtonElement>('[aria-label="管理公众号"]')!.click();
+        await Menu.latest.items.find(item => item.title === '暂停自动更新')!.click();
+        expect(setEnabled).toHaveBeenCalledWith(feeds[1], false);
+        expect(modal.contentEl.querySelectorAll('.wr-manager-row')).toHaveLength(0);
+        // 其他入口的修改通过通知刷新当前管理窗口。
+        feeds[1].enabled = true;
+        window.dispatchEvent(new Event('wechat-reader:subscriptions-changed'));
+        expect(modal.contentEl.querySelectorAll('.wr-manager-row')).toHaveLength(1);
     });
 });

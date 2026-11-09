@@ -11,7 +11,7 @@ import { RuntimeManager } from './runtime/manager';
 import { ReaderView, VIEW_TYPE } from './views/reader';
 import { retainReaderLeaf } from './views/layout';
 import { archiveRoot } from './archive/archive';
-import { appendSubscriptionSettings, renderSubscriptionLinks } from './views/subscription-settings';
+import { appendSubscriptionSettings } from './views/subscription-settings';
 import { exportSubscriptionConfiguration } from './feeds/configuration';
 import { FeedService } from './feeds/service';
 import type { CollectorProvider, ReaderData } from './collector/types';
@@ -52,7 +52,7 @@ export default class WeChatReaderPlugin extends Plugin {
         this.service = new FeedService(this.data, this.directory, () => this.persist(), () => this.runtime.connect(), { root: join(homedir(), 'Library/Application Support/Obsidian WeChat Reader'), session: action => this.runtime.session(() => action()) });
         const settings = new ReaderSettings(this);
         this.service.onChange = () => { for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE))
-            (leaf.view as ReaderView).render?.(); settings.refreshLinks(); };
+            (leaf.view as ReaderView).render?.(); window.dispatchEvent(new Event('wechat-reader:subscriptions-changed')); };
         this.readingState = new ReadingStore(this.data, () => this.persist(), () => this.service.onChange(), id => this.service.articles().find(article => article.id === id));
         this.registerDomEvent(window, 'focus', () => { void this.service.resume(); });
         this.registerDomEvent(window, 'online', () => { void this.service.resume(); });
@@ -121,7 +121,7 @@ export default class WeChatReaderPlugin extends Plugin {
         const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char]!));
         // 保留分组名称，导入时可恢复当前源组织方式。
         const folders = new Map<string, typeof this.data.feeds>();
-        for (const feed of this.data.feeds) {
+        for (const feed of this.data.feeds.filter(feed => !feed.removed)) {
             if (!folders.has(feed.folder))
                 folders.set(feed.folder, []);
             folders.get(feed.folder)!.push(feed);
@@ -144,9 +144,6 @@ export default class WeChatReaderPlugin extends Plugin {
 }
 /** 原生设置与弹窗均使用 Obsidian 控件自动跟随深浅主题 */
 class ReaderSettings extends PluginSettingTab {
-    private links?: HTMLElement;
-    refreshLinks(): void { if (this.links?.isConnected) renderSubscriptionLinks(this.links, this.plugin.service.feeds()); }
-    hide(): void { this.links = undefined; super.hide(); }
     /** 当前插件持有设置及订阅服务 */
     constructor(private plugin: WeChatReaderPlugin) { super(plugin.app, plugin); }
     /** 让新版设置搜索索引归档、阅读及公众号选项 */
@@ -224,7 +221,7 @@ class ReaderSettings extends PluginSettingTab {
         }));
         new Setting(container).setName('公众号缓存管理').setDesc('预览并清理指定日期以前的共享正文和图片，保留收藏和归档。').addButton(button => button.setButtonText('管理缓存').onClick(() => new CacheModal(this.plugin).open()));
         new Setting(container).setName('打开阅读侧栏').addButton(button => button.setButtonText('打开右侧 RSS 栏').onClick(() => this.plugin.openReader()));
-        this.links = appendSubscriptionSettings(container, this.plugin, () => this.refreshLinks());
+        appendSubscriptionSettings(container, this.plugin, () => this.plugin.service.onChange());
         container.createEl('p', { text: '← / → 切换文章，↑ / ↓ 滚动正文，Esc 关闭弹窗。打开正文或失败提示后自动已读。' });
     }
 }

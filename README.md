@@ -23,7 +23,7 @@ Obsidian 桌面 RSS 阅读器：在右侧栏管理普通 RSS、Atom 和微信公
 
 ## 安装和使用
 
-1. 先在社区插件页面安装（目录中可用时），或手动将 `main.js`、`manifest.json`、`styles.css` 放入笔记库配置目录的 `plugins/wechat-reader/`。普通 RSS/Atom 可直接使用；公众号用户在设置中点击“安装公众号引擎”并确认下载，安装后启用公众号并扫码。也可从 [1.1.0 发布页](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.1.0) 下载 `wechat-reader-1.1.0-macos-arm64.zip`，解压后复制完整 `wechat-reader/`（含 `engine/`）到插件目录；不要下载 Source code 源码包。覆盖安装时保留 `data.json` 和 `cache/`。默认配置目录为 `.obsidian`，自定义配置目录请使用实际路径。
+1. 先在社区插件页面安装（目录中可用时），或手动将 `main.js`、`manifest.json`、`styles.css` 放入笔记库配置目录的 `plugins/wechat-reader/`。普通 RSS/Atom 可直接使用；公众号用户在设置中点击“安装公众号引擎”并确认下载，安装后启用公众号并扫码。也可从 [1.2.0 发布页](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.2.0) 下载 `wechat-reader-1.2.0-macos-arm64.zip`，解压后复制完整 `wechat-reader/`（含 `engine/`）到插件目录；不要下载 Source code 源码包。覆盖安装时保留 `data.json` 和 `cache/`。默认配置目录为 `.obsidian`，自定义配置目录请使用实际路径。
 2. 点击 RSS 图标或执行“打开 RSS 阅读侧栏”。首次安装和一期升级默认停靠**右侧栏**，后续保留用户拖动的布局。
 3. 点击 `+` 添加 RSS/Atom XML 地址。菜单支持 OPML 导入预览和导出；重复 URL 保留原源，同名源可分别放在不同分组。右键源可以修改名称、分组、刷新周期或停止自动刷新；历史缓存和阅读状态保留。
 4. 点击文章打开原生阅读弹窗。`← / →` 切换前后文章，`↑ / ↓` 滚动正文，`Esc` 关闭；输入框、输入法和其他弹窗不受影响。打开时冻结当前已展示的文章队列，标记已读后不会跳篇，首尾不循环。
@@ -43,7 +43,9 @@ Obsidian 标准更新只下载 `main.js`、`manifest.json` 和可选的 `styles.
 
 ## 订阅配置
 
-插件设置提供“当前订阅链接（只读）”：显示全部 RSS/Atom 地址和公众号已保存的原文链接，包含已暂停的源，可复制但不能编辑。公众号尚未保存链接时明确提示，不以通用主页代替。
+阅读器“订阅源”标题旁和插件设置中的“管理订阅”打开同一个管理窗口。支持按名称、分组、链接搜索，以及“全部 / 订阅中 / 已暂停”筛选。点击来源名称展开完整只读链接和刷新间隔；公众号链接明确标为“恢复用原文链接”。每行“设置”可修改名称、分组与刷新配置，“更多”支持暂停/恢复自动更新、立即刷新、移除订阅。窗口顶部提供添加订阅，以及 JSON、OPML 导入和 JSON 导出。
+
+“暂停自动更新”保留来源入口；“移除订阅”确认后从当前库列表隐藏，历史文章、已读收藏、归档笔记与缓存保留，重新添加相同来源可恢复入口。移除公众号同时停止本机共享采集，其他库也会停止自动更新；本库移除标记不会被共享快照覆盖。清理下载内容仍由独立的缓存管理执行。
 
 - “导出订阅配置”将统一 JSON 文件保存到笔记库根目录，包括名称、地址、分组、开关、刷新间隔及公众号恢复定义；不导出登录凭据、文章缓存或阅读记录。私有 RSS 地址中的必要查询参数会保留，请自行保管导出文件。
 - “导入订阅配置”选择本插件导出的 JSON，先预览再确认。按 RSS 地址和公众号身份去重，保留已有订阅设置，仅补齐缺失恢复信息；无效文件整份拒绝，保存失败回滚，不产生部分导入。
@@ -99,7 +101,7 @@ npm run test:package
 WECHAT_READER_TEST_VAULT="/你的测试笔记库路径" npm run deploy:test
 ```
 
-`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 1.1.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；1.1.0 的公众号功能可通过设置安装固定 1.0.0 引擎，或手动安装 1.1.0 完整包中的 `engine/`。
+`test:companion` 使用临时目录和网络夹具，不读取真实授权。`test:legacy` 仅供一期历史回归，需要单独 Python 虚拟环境。当前包针对 macOS Apple Silicon；移动端、本机之外的 RSS 服务、LaunchAgent、完整历史回补不在本次范围。当前版本号为 1.2.0，内核通过 `engineVersion: ts-1` 与旧实例区分，并要求 `power-save`、`portable-subscriptions`、`bounded-history` 和 `cache-cleanup` 能力；1.2.0 的公众号功能可通过设置安装固定 1.0.0 引擎，或手动安装 1.2.0 完整包中的 `engine/`。
 
 安装和回归结果见 `VALIDATION.md`。私有发现文件、二维码、Cookie、Token 不得复制到日志、报告或 Git。
 
