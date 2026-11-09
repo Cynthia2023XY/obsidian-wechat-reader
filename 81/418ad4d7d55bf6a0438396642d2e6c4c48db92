@@ -1,0 +1,65 @@
+src/views/subscription-manager.ts
+  s_7ab8f7694c9f27::t_eca4ba91fac024 1-29,31-32,34,36-47,49-52,54-64,66,68,70-71,74-82,85,87-100,102-119
+  s_7ab8f7694c9f27::t_963f86773cf909 30,33,35,65,67,69,73,83,86,101
+  s_7ab8f7694c9f27::t_e444eeeaa3b818 48,53,72,84
+src/collector/types.ts
+  s_7ab8f7694c9f27::t_c3ef19230a1d13 32
+src/feeds/service.ts
+  s_7ab8f7694c9f27::t_c3ef19230a1d13 54,122-123,129,131,185,188-189,191-195,199-200,202-205,207-210,213-215,217,225,364,383,410,416
+  s_7ab8f7694c9f27::t_2e7283d4f2c805 75,177-184
+  s_7ab8f7694c9f27::t_5ed56547137e91 124-128,167,170-171,173,190,196-198,206,211-212,218-224
+  s_7ab8f7694c9f27::t_3341202d293efb 201,216
+tests/configuration.test.ts
+  s_7ab8f7694c9f27::t_2e7283d4f2c805 7-8,24,28,188-194,196,198,200,202-210,212-214,216-229
+  s_7ab8f7694c9f27::t_963f86773cf909 118-177,195,197,199,201,211,215
+  s_7ab8f7694c9f27::t_12194812e1d1a8 114-117,178-187
+styles.css
+  s_7ab8f7694c9f27::t_eca4ba91fac024 74-85
+src/views/wechat-modals.ts
+  s_7ab8f7694c9f27::t_2e7283d4f2c805 153-156,164,173
+docs/releases/1.2.0.md
+  s_7ab8f7694c9f27::t_1a1f7d7edaa158 23-28
+  s_7ab8f7694c9f27::t_49e65287bc18f7 1-22
+README.md
+  s_7ab8f7694c9f27::t_2e7283d4f2c805 46-48
+  s_7ab8f7694c9f27::t_302731678bfdad 26,104
+src/views/reader.ts
+  s_7ab8f7694c9f27::t_eca4ba91fac024 1,129-134,322-325
+  s_7ab8f7694c9f27::t_2e7283d4f2c805 95-96,188
+src/feeds/configuration.ts
+  s_7ab8f7694c9f27::t_c3ef19230a1d13 60-62,71-72
+src/views/subscription-settings.ts
+  s_7ab8f7694c9f27::t_eca4ba91fac024 1,8,36,38-47
+src/main.ts
+  s_7ab8f7694c9f27::t_5ed56547137e91 55,224
+  s_7ab8f7694c9f27::t_963f86773cf909 124
+  s_7ab8f7694c9f27::t_eca4ba91fac024 14
+VALIDATION.md
+  s_7ab8f7694c9f27::t_1a1f7d7edaa158 195-202
+README.en.md
+  s_7ab8f7694c9f27::t_6e0cf5dbb69000 19,29-34
+manifest.json
+  s_7ab8f7694c9f27::t_dbe14d49b5a8f2 4
+package-lock.json
+  s_7ab8f7694c9f27::t_701f792b02059a 3,9
+package.json
+  s_7ab8f7694c9f27::t_8e047d28b0555a 3
+versions.json
+  s_7ab8f7694c9f27::t_ea7ca30c178149 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "81418ad4d7d55bf6a0438396642d2e6c4c48db92",
+  "prompts": {},
+  "sessions": {
+    "s_7ab8f7694c9f27": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bf47-5a37-73d3-a118-db51f21896b7",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "dingxinyi.2 <dingxinyi.2@jd.com>"
+    }
+  }
+}
