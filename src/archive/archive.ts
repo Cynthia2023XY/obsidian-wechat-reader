@@ -10,26 +10,24 @@ export function archiveRoot(value: string, configDir: string): string {
   if (!value.trim() || /^(\/|\\|[a-z]:)/i.test(value) || value.split(/[\\/]/).some(segment => segment === '..') || normalizePath(value).toLowerCase() === normalizePath(configDir).toLowerCase() || normalizePath(value).toLowerCase().startsWith(`${normalizePath(configDir).toLowerCase()}/`)) throw new Error('请选择笔记库内的普通归档目录');
   return normalizePath(value);
 }
-/** 清理不可信 HTML，所有图片都由本机鉴权获取后替换 */
+/** 清理不可信 HTML，保留图片占位供阅读与导出分别处理 */
 export function cleanArticle(html: string): string {
   return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['p','br','div','span','section','article','h1','h2','h3','h4','h5','h6','strong','b','em','i','u','s','blockquote','ul','ol','li','pre','code','table','thead','tbody','tr','th','td','hr','a','img','figure','figcaption'], ALLOWED_ATTR:['href','src','alt','title','colspan','rowspan'], ALLOW_DATA_ATTR: false, ADD_URI_SAFE_ATTR: ['src'] });
 }
 /** 将远端文本保存为被动 Markdown，避免被已安装的模板或查询插件执行 */
 export function passiveMarkdown(value: string): string {return value.replace(/<%/g,'&lt;%').replace(/`(?=\$=|=)/g,'`\\');}
-/** 通过 Vault API 归档正文和附件，重复归档默认打开已有笔记 */
-export async function archiveArticle(app: App, provider: CollectorProvider, article: Article, accountName: string, folder: string, state: ReadingState, open = true): Promise<ReadingState> {
+/** 通过 Vault API 保存正文和云端图片链接，重复保存默认打开已有笔记 */
+export async function archiveArticle(app: App, _provider: CollectorProvider, article: Article, accountName: string, folder: string, state: ReadingState, open = true): Promise<ReadingState> {
   if (state.archive) {
     // 已归档笔记归用户维护，不覆盖其内容和当前文章版本。
     const existing = app.vault.getAbstractFileByPath(state.archive);
     if (existing instanceof TFile) { if (open) await app.workspace.getLeaf(false).openFile(existing); return state; }
   }
   if (article.state !== 'ready' || !article.html) throw new Error('正文尚未就绪，无法归档');
-  // 每篇附件隔离，目录经过校验后再创建。
+  // 保存目录经过校验后再创建。
   const root = archiveRoot(folder, app.vault.configDir);
-  // 日期和稳定 ID 同时避免同名文章碰撞。
+  // 每个订阅来源使用独立目录。
   const directory = normalizePath(`${root}/${safeName(accountName)}`);
-  // 附件不依赖 localhost，笔记同步到手机后仍可读取。
-  const assetsDirectory = normalizePath(`${directory}/assets/${article.id}`);
   // 逐层创建目录，兼容并发归档已经存在的文件夹。
   const ensureFolder = async (path: string): Promise<void> => {
     // Vault API 不保证递归创建父目录。
@@ -41,34 +39,31 @@ export async function archiveArticle(app: App, provider: CollectorProvider, arti
       }
     }
   };
-  await ensureFolder(assetsDirectory);
+  await ensureFolder(directory);
   // 隔离 DOM 用于替换图片占位，不挂载不可信文章。
   const document = new DOMParser().parseFromString(cleanArticle(article.html), 'text/html');
   for (const image of Array.from(document.querySelectorAll('img'))) {
-    // 资源 ID 只映射已验证的文章附件。
-    const id = image.getAttribute('src')?.replace(/^asset:/, '') || '';
-    // 未下载图片替换为明确提示，不请求外部 URL。
-    const asset = article.assets.find(item => item.id === id && ['ready','remote'].includes(item.state));
-    if (!asset) { image.replaceWith(document.createTextNode('[图片未完整，可在原文查看]')); continue; }
-    // 先读取图片，普通 RSS 会在此确认实际 MIME。
-    let bytes: ArrayBuffer;
-    try { bytes = await provider.asset(article.id, asset); } catch { image.replaceWith(document.createTextNode('[图片未下载，可在原文查看]')); continue; }
-    // MIME 决定后缀，不信任上游原始文件名。
-    const extension = ({'image/jpeg':'jpg','image/png':'png','image/gif':'gif','image/webp':'webp','image/avif':'avif'} as Record<string,string>)[asset.mime];
-    if (!extension) { image.remove(); continue; }
-    // 带正文版本的资源路径避免更新时覆盖旧归档附件。
-    const filename = `${asset.id}-${article.contentVersion}.${extension}`;
-    // 相同附件重复归档时复用，不替换用户已有文件。
-    const assetPath = normalizePath(`${assetsDirectory}/${filename}`);
-    if (!app.vault.getAbstractFileByPath(assetPath)) await app.vault.createBinary(assetPath, bytes);
-    image.setAttribute('src', `assets/${article.id}/${filename}`);
+    // 只从当前文章声明的资源恢复原始地址，不导出本机缓存或鉴权端点。
+    const asset = article.assets.find(item => image.getAttribute('src') === `asset:${item.id}`);
+    try {
+      // 只保存无用户名密码的网络图片链接，兼容未下载的远程图片。
+      const url = new URL(asset?.sourceUrl || '');
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || ['localhost', '[::1]', '0.0.0.0'].includes(url.hostname) || /^127\./.test(url.hostname) || url.hostname.endsWith('.localhost')) throw new Error('图片地址不可导出');
+      image.setAttribute('src', url.href);
+    } catch {
+      image.replaceWith(document.createTextNode('[图片请查看原文]'));
+    }
   }
   // 安全清理后的正文转换为普通 Markdown。
   const markdown = passiveMarkdown(new TurndownService({headingStyle:'atx', codeBlockStyle:'fenced'}).turndown(document.body));
+  // 文件名与归档元数据共用保存时刻，文件日期采用用户电脑的本地日期。
+  const savedAt = new Date();
+  // 按本地年月日生成日期，避免 UTC 日期在午夜前后偏移一天。
+  const savedDate = `${savedAt.getFullYear()}-${String(savedAt.getMonth() + 1).padStart(2, '0')}-${String(savedAt.getDate()).padStart(2, '0')}`;
   // YAML 字符串使用 JSON 双引号编码，防止标题破坏 frontmatter。
-  const frontmatter = Object.entries({ source:article.id.startsWith('rss_')?'RSS':'微信公众号', contentKind:article.contentKind || 'full', accountId:article.accountId, articleId:article.id, originalUrl:article.url, publishedAt:article.publishedAt, archivedAt:new Date().toISOString(), contentVersion:article.contentVersion }).map(([key,value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
+  const frontmatter = Object.entries({ source:article.id.startsWith('rss_')?'RSS':'微信公众号', contentKind:article.contentKind || 'full', accountId:article.accountId, articleId:article.id, originalUrl:article.url, publishedAt:article.publishedAt, archivedAt:savedAt.toISOString(), contentVersion:article.contentVersion }).map(([key,value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
   // 碰撞时生成新副本，不根据标题覆盖其他文件。
-  const base = `${directory}/${article.publishedAt?.slice(0,10) || '未知日期'} ${safeName(article.title)} ${article.id.slice(-8)}`;
+  const base = `${directory}/${savedDate} ${safeName(article.title)}`;
   // 新副本序号用于保护用户已存在但未关联的文件。
   let path = `${base}.md`;
   for (let suffix = 2; app.vault.getAbstractFileByPath(path); suffix++) path = `${base} (${suffix}).md`;

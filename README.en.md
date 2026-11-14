@@ -2,9 +2,16 @@
 
 [中文说明](README.md) | English
 
+## 1.2.1 update (2026-11-14)
+
+- Markdown filenames use the local save date and article title, without a hash. The original publication date stays in YAML metadata.
+- Name collisions add `(2)`, `(3)`, and so on, preserving existing notes.
+- RSS and WeChat images retain their original remote URLs; saving no longer downloads image attachments. Images require a network connection and a working source URL. Unavailable image sources show a prompt to view the original article.
+- Existing notes, attachments, and reading records are preserved. Saving an archived article again reuses its existing note without renaming it or rewriting old image references.
+
 ## Overview
 
-WeChat Reader is a desktop RSS and Atom reader for Obsidian. Manage feeds in the sidebar, read and bookmark articles, and archive articles as Markdown with local images.
+WeChat Reader is a desktop RSS and Atom reader for Obsidian. Manage feeds in the sidebar, read and bookmark articles, and archive articles as Markdown with original remote image URLs.
 
 ### Installation
 
@@ -16,7 +23,7 @@ Install standard plugin files via Community plugins when available, or copy `mai
 
 Downloaded engines live in version directories named `wechat-engine-<UUID>/` inside the plugin folder, selected through `wechat-engine.json`. Existing manually installed `engine/` remains supported. Settings, caches and archive files are preserved. A running shared companion keeps its current tasks; a new process uses the selected engine. Old engine directories are retained to protect running processes; each reinstall consumes approximately another 150 MiB.
 
-Manual fallback: download the full ZIP from the [1.2.0 release](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.2.0), not the Source code archive, and install its complete plugin folder while preserving `data.json` and `cache/`.
+Manual fallback: download the full ZIP from the [1.2.1 release](https://github.com/Cynthia2023XY/obsidian-wechat-reader/releases/tag/1.2.1), not the Source code archive, and install its complete plugin folder while preserving `data.json` and `cache/`.
 
 **Updates:** Obsidian's [standard updater](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) distributes only the standard plugin files. This installer does not query latest or update silently: the version and digest are pinned in plugin code. A future plugin release can specify a new compatible package for users to explicitly install. The current installer only installs or repairs engine 1.0.0. Close relevant vaults and wait for collection and the old companion to stop before manually replacing an engine in use; keep related vaults on compatible versions.
 
@@ -49,4 +56,4 @@ Development requires Node.js 26 or later. Run `npm ci`, `npm test`, `npm run tes
 
 The optional companion runs only while needed by Obsidian, unless persistent mode is selected. It does not install an operating-system background service. WeChat credentials remain in the local shared data directory, outside vault sync. Private feed URLs may contain subscription tokens; exported subscription files should be handled as private data. The plugin does not collect telemetry. It downloads the pinned WeChat engine from GitHub only after explicit confirmation, never on startup, and does not silently update it.
 
-WeChat images load directly from validated HTTPS CDN URLs while reading. Archiving downloads images as vault attachments. See [the image storage design](docs/remote-images.md).
+WeChat images load directly from validated HTTPS CDN URLs while reading. Archiving keeps original remote image URLs without downloading attachments. Filenames use the local save date and title, with a numeric suffix on collisions and no hash. Remote images require a network connection and a working source URL. See [the image storage design](docs/remote-images.md).

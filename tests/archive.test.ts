@@ -3,8 +3,8 @@ import { archiveArticle, archiveRoot, cleanArticle, safeName, passiveMarkdown } 
 import { TFile } from 'obsidian';
 import type { Article } from '../src/collector/types';
 
-/** 归档安全与用户编辑保护是跨设备离线阅读的关键约束 */
-describe('离线归档与正文安全',()=>{
+/** 归档安全与用户编辑保护确保保存过程不破坏已有笔记 */
+describe('Markdown 归档与正文安全',()=>{
   it('拒绝绝对路径、上级目录与插件配置目录',()=>{
     for (const value of ['/tmp/escape','../escape','notes/../escape','C:\\escape','配置目录/plugins','']) expect(()=>archiveRoot(value, '配置目录')).toThrow();
     expect(archiveRoot('公众号阅读/科技', '配置目录')).toBe('公众号阅读/科技');
@@ -37,26 +37,61 @@ describe('离线归档与正文安全',()=>{
     expect(await archiveArticle(app as never,{} as never,{} as Article,'公众号','阅读',state)).toBe(state);
     expect(app.vault.create).not.toHaveBeenCalled();
   });
-  it('归档下载图片、生成相对链接及可独立阅读的 Markdown',async()=>{
-    // 内存文件系统保留所有写入作为检查证据。
-    const files=new Map<string,unknown>();
-    // 使用真实 TFile 类型识别现有归档行为。
-    const create=vi.fn(async(path:string,text:string)=>{const file=new TFile();file.path=path;files.set(path,text);return file;});
-    // 归档只通过 Vault API 写入，无 Node 绝对路径写操作。
-    const app={vault:{configDir:'配置目录',getAbstractFileByPath:(path:string)=>files.get(path),createFolder:async(path:string)=>{files.set(path,{});},createBinary:async(path:string,bytes:ArrayBuffer)=>{files.set(path,bytes);},create},workspace:{getLeaf:()=>({openFile:vi.fn()})}};
-    // 模拟鉴权资源请求，响应不包含 Cookie 或密钥。
-    const provider={asset:vi.fn(async()=>new ArrayBuffer(4))};
-    // 带引号标题验证 YAML 可安全编码。
-    const article={id:'article_12345678',accountId:'account_one',title:'标题 "测试"',url:'https://mp.weixin.qq.com/s/test',publishedAt:'2026-10-23T00:00:00Z',state:'ready',contentVersion:'v1',html:'<p>离线正文</p><img src="asset:abc">',assets:[{id:'abc',mime:'image/png',state:'ready'}]} as Article;
-    // 保存结果中的关联版本必须在文件写入成功后产生。
-    const state=await archiveArticle(app as never,provider as never,article,'科技','公众号阅读',{});
-    expect(state.archive).toContain('12345678.md');
-    expect(provider.asset).toHaveBeenCalledOnce();
-    expect(create.mock.calls[0][1]).toContain('assets/article_12345678/abc-v1.png');
-    expect(create.mock.calls[0][1]).toContain('离线正文');
-    expect(create.mock.calls[0][1]).not.toContain('localhost');
-    expect(create.mock.calls[0][1]).not.toContain('tags:');
-    expect([...files.keys()]).toContain('公众号阅读/科技/assets/article_12345678/abc-v1.png');
+  it.each([
+    ['RSS', 'rss_12345678', 'https://example.com/photo.webp', true],
+    ['公众号', 'article_12345678', 'https://mmbiz.qpic.cn/photo.png', true],
+    ['缺少来源', 'article_12345678', undefined, false],
+    ['本机资源', 'rss_12345678', 'http://127.0.0.1:8080/secret', false],
+    ['本机域名', 'rss_12345678', 'http://localhost/secret', false],
+    ['带凭据地址', 'rss_12345678', 'https://user:secret@example.com/photo', false],
+    ['危险协议', 'rss_12345678', 'javascript:alert(1)', false],
+  ])('%s 保存当天日期、无哈希且不下载图片', async (_label, id, sourceUrl, allowed) => {
+    // 固定本地午夜后的保存时间，验证日期不依赖文章发布日期或 UTC 日期。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 14, 0, 5));
+    try {
+      // 内存文件系统保留所有写入作为检查证据。
+      const files = new Map<string, unknown>();
+      // 使用真实文件类型，以便再次保存时复用已关联的笔记。
+      const create = vi.fn(async (path: string, text: string) => {
+        // 模拟 Obsidian 创建的文件对象，并保留正文便于验证。
+        const file = new TFile();
+        file.path = path;
+        files.set(path, file);
+        return file;
+      });
+      // 图片下载和二进制写入均应保持未调用。
+      const app = { vault: { configDir: '配置目录', getAbstractFileByPath: (path: string) => files.get(path), createFolder: vi.fn(async (path: string) => { files.set(path, {}); }), createBinary: vi.fn(), create }, workspace: { getLeaf: () => ({ openFile: vi.fn() }) } };
+      // 保存 Markdown 不依赖图片请求成功或资源下载状态。
+      const provider = { asset: vi.fn() };
+      // 带引号标题验证安全文件名和原始标题互不干扰。
+      const article = { id, accountId: 'account_one', title: '标题 "测试"', url: 'https://example.com/article', publishedAt: '2026-10-23T00:00:00Z', state: 'ready', contentVersion: 'v1', html: '<p>文章正文</p><img src="asset:abc" alt="插图">', assets: [{ id: 'abc', mime: 'image/png', state: 'remote', sourceUrl }] } as Article;
+      // 保存日期只用于命名，原始发布日期继续保留在元数据中。
+      const state = await archiveArticle(app as never, provider as never, article, '科技', '公众号阅读', {}, false);
+      expect(state.archive).toBe('公众号阅读/科技/2026-11-14 标题 -测试-.md');
+      expect(provider.asset).not.toHaveBeenCalled();
+      expect(app.vault.createBinary).not.toHaveBeenCalled();
+      expect([...files.keys()].some(path => path.includes('/assets'))).toBe(false);
+      // 验证导出只含公网图片来源，不包含内部占位和下载文件路径。
+      const markdown = create.mock.calls[0][1];
+      expect(markdown).toContain('文章正文');
+      expect(markdown).toContain('publishedAt: "2026-10-23T00:00:00Z"');
+      expect(markdown).toContain(`archivedAt: "${new Date().toISOString()}"`);
+      expect(markdown).not.toContain('asset:');
+      if (allowed) expect(markdown).toContain(`![插图](${sourceUrl})`);
+      else {
+        expect(markdown).toContain('图片请查看原文');
+        if (sourceUrl) expect(markdown).not.toContain(sourceUrl);
+      }
+      // 已保存文章再次保存复用原笔记，不生成副本。
+      expect(await archiveArticle(app as never, provider as never, article, '科技', '公众号阅读', state, false)).toBe(state);
+      expect(create).toHaveBeenCalledTimes(1);
+      // 未关联的同名文章依序添加副本号，保护已有文件。
+      files.set('公众号阅读/科技/2026-11-14 标题 -测试- (2).md', new TFile());
+      expect((await archiveArticle(app as never, provider as never, article, '科技', '公众号阅读', {}, false)).archive).toBe('公众号阅读/科技/2026-11-14 标题 -测试- (3).md');
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('未就绪文章不生成空正文笔记',async()=>{
     await expect(archiveArticle({} as never,{} as never,{state:'temporary_failure'} as Article,'号','阅读',{})).rejects.toThrow('正文尚未就绪');

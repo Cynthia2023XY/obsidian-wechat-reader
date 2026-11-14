@@ -236,14 +236,14 @@ export class ArticleReaderModal extends Modal {
         // 当前本库归档状态不影响其他笔记库。
         const state = this.plugin.data.reading[article.id] || {};
         if (state.archive && state.version !== article.contentVersion && !copy) {
-            new ConfirmModal(this.app, '正文有更新。另存新副本会保留原笔记及其附件。', () => this.saveArticle(true)).open();
+            new ConfirmModal(this.app, '正文有更新。另存新副本会保留原笔记。', () => this.saveArticle(true)).open();
             return;
         }
         const archived = await archiveArticle(this.app, this.plugin.service.contentProvider(), article, this.plugin.service.feeds().find(feed => feed.id === article.accountId)?.title || 'RSS', this.plugin.data.archiveFolder, copy ? { ...state, archive: undefined } : state, false);
         // 归档耗时期间的手动已读/未读与收藏变更优先。
         this.plugin.data.reading[article.id] = { ...this.plugin.data.reading[article.id], archive: archived.archive, version: archived.version };
         await this.plugin.persist();
-        new Notice(state.archive && !copy ? '已保存过该文章，原笔记保持不变' : 'Markdown 与本地图片已保存');
+        new Notice(state.archive && !copy ? '已保存过该文章，原笔记保持不变' : 'Markdown 已保存，图片使用原始链接');
     }
     /** 收藏按钮表达当前库的状态 */
     private updateStar(): void { this.star.setText(this.article && this.plugin.data.reading[this.article.id]?.starred ? '★' : '☆'); this.star.setAttribute('aria-label', '切换收藏'); }

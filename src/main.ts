@@ -160,7 +160,7 @@ class ReaderSettings extends PluginSettingTab {
         container.empty();
         new Setting(container).setName('RSS 阅读').setHeading();
         container.createEl('p', { text: '订阅列表默认在右侧栏，文章在弹窗中阅读。界面跟随 Obsidian 深色或浅色主题。' });
-        new Setting(container).setName('Markdown 归档目录').setDesc('相对当前笔记库，图片与正文离线保存。').addText(text => text.setValue(this.plugin.data.archiveFolder).onChange(async (value) => { try {
+        new Setting(container).setName('Markdown 归档目录').setDesc('相对当前笔记库保存正文；图片保留云端链接，需要联网查看。').addText(text => text.setValue(this.plugin.data.archiveFolder).onChange(async (value) => { try {
             archiveRoot(value, this.app.vault.configDir);
             this.plugin.data.archiveFolder = value;
             await this.plugin.persist();
